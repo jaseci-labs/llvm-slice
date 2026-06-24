@@ -90,9 +90,10 @@ def parse_link_libraries(text: str) -> dict {
 
 
 def _normalize_location(raw: str) -> str {
-    # Drop a leading ${VAR}/ install-prefix and normalize Windows backslashes.
-    p: str = re.sub(r"^\$\{[^}]*\}/", "", raw);
-    return p.replace("\\", "/");
+    # Normalize Windows backslashes FIRST, then drop a leading ${VAR}/ prefix --
+    # otherwise a `${_IMPORT_PREFIX}\lib\X.lib` path would not match the stripper.
+    p: str = raw.replace("\\", "/");
+    return re.sub(r"^\$\{[^}]*\}/", "", p);
 }
 
 
@@ -102,7 +103,9 @@ def _normalize_location(raw: str) -> str {
 def parse_imported_locations(text: str) -> dict {
     out: dict = {};
     # `[^)]` matches newlines, keeping the match inside one block; no DOTALL flag.
-    pat: str = r'set_target_properties\((\S+)\s+PROPERTIES[^)]*?IMPORTED_LOCATION_\w+\s+"([^"]*)"';
+    # The config suffix is optional: match IMPORTED_LOCATION_RELEASE/_DEBUG/... AND
+    # the plain config-independent IMPORTED_LOCATION.
+    pat: str = r'set_target_properties\((\S+)\s+PROPERTIES[^)]*?IMPORTED_LOCATION(?:_\w+)?\s+"([^"]*)"';
     for m in re.finditer(pat, text) {
         out[str(m.group(1))] = _normalize_location(str(m.group(2)));
     }

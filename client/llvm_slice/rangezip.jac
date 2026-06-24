@@ -92,10 +92,21 @@ class HTTPRangeReader:
             end = min(self.pos + n - 1, self.size - 1)
         if self.size <= 0 or end < self.pos:
             return b""
-        req = urllib.request.Request(self.final_url, headers={"Range": "bytes=%d-%d" % (self.pos, end)})
-        with urllib.request.urlopen(req, timeout=self.timeout) as r:
-            data = r.read()
-        self.bytes_fetched += len(data)
+        # Accumulate until the full requested range is satisfied: a server may
+        # legitimately return a 206 shorter than requested, which would otherwise
+        # misalign zipfile's view of the stream.
+        chunks = []
+        cur = self.pos
+        while cur <= end:
+            req = urllib.request.Request(self.final_url, headers={"Range": "bytes=%d-%d" % (cur, end)})
+            with urllib.request.urlopen(req, timeout=self.timeout) as r:
+                part = r.read()
+            if not part:
+                break
+            chunks.append(part)
+            self.bytes_fetched += len(part)
+            cur += len(part)
+        data = b"".join(chunks)
         self.pos += len(data)
         return data
 
@@ -130,14 +141,21 @@ def _fetch_slice_py(url, lib_members, include_prefix, cmake_prefix, want_headers
                 seen.add(n)
 
     _os.makedirs(out_dir, exist_ok=True)
-    written, missing = 0, []
+    out_root = _os.path.realpath(out_dir)
+    written, missing, unsafe = 0, [], []
     for m in selected:
+        # Guard against zip-slip: a malicious member name like "../../etc/x" must
+        # never escape out_dir.
+        dest = _os.path.normpath(_os.path.join(out_dir, *m.split("/")))
+        real_dest = _os.path.realpath(dest)
+        if real_dest != out_root and not real_dest.startswith(out_root + _os.sep):
+            unsafe.append(m)
+            continue
         try:
             data = zf.read(m)
         except KeyError:
             missing.append(m)
             continue
-        dest = _os.path.join(out_dir, *m.split("/"))
         parent = _os.path.dirname(dest)
         if parent:
             _os.makedirs(parent, exist_ok=True)
@@ -148,6 +166,7 @@ def _fetch_slice_py(url, lib_members, include_prefix, cmake_prefix, want_headers
     return {
         "members": written,
         "missing_members": missing,
+        "unsafe_members": unsafe,
         "bytes_fetched": reader.bytes_fetched,
         "full_size": reader.size,
         "range_supported": reader.range_supported,

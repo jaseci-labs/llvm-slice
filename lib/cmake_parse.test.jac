@@ -104,6 +104,26 @@ test "lib entries split deps vs external correctly" {
     assert ho.external == [];
 }
 
+glob WIN_RELEASE_TEXT: str = """
+set_target_properties(LLVMWin PROPERTIES
+  IMPORTED_LINK_INTERFACE_LANGUAGES_RELEASE "CXX"
+  IMPORTED_LOCATION_RELEASE "${_IMPORT_PREFIX}\\lib\\LLVMWin.lib"
+  )
+
+set_target_properties(LLVMPlain PROPERTIES
+  IMPORTED_LOCATION "${_IMPORT_PREFIX}/lib/libLLVMPlain.a"
+  )
+""";
+
+
+test "imported locations handle windows backslashes and a missing config suffix" {
+    locs = parse_imported_locations(WIN_RELEASE_TEXT);
+    # Windows backslash path, normalized and prefix-stripped.
+    assert locs["LLVMWin"] == "lib/LLVMWin.lib";
+    # Config-independent IMPORTED_LOCATION (no _RELEASE suffix) is still captured.
+    assert locs["LLVMPlain"] == "lib/libLLVMPlain.a";
+}
+
 test "generator-expression deps are unwrapped to internal targets" {
     available = ["LLVMCore", "LLVMPasses", "LLVMSupport"];
     links: dict = {};

@@ -77,6 +77,14 @@ def _serve(dirpath):
     t = threading.Thread(target=httpd.serve_forever, daemon=True)
     t.start()
     return (httpd, port)
+
+
+def _make_evil_zip(dirpath):
+    zpath = _os.path.join(dirpath, "evil.zip")
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("lib/ok.a", b"ok" * 100)
+        z.writestr("../escape.a", b"pwned")  # zip-slip attempt
+    return zpath
 ::py::
 
 
@@ -103,6 +111,24 @@ test "range fetch transfers far fewer bytes than the full archive" {
     assert fetched < full_size, f"fetched {fetched} should be < full {full_size}";
     assert fetched < 100000, f"fetched {fetched} should be a tiny fraction of {full_size}";
 
+    httpd.shutdown();
+}
+
+test "zip-slip path traversal is blocked" {
+    d = tempfile.mkdtemp();
+    _make_evil_zip(d);
+    served = _serve(d);
+    httpd = served[0];
+    port = served[1];
+    url = f"http://127.0.0.1:{port}/evil.zip";
+    outdir = os.path.join(d, "extract");
+
+    rep: dict = fetch_members(url, ["lib/ok.a", "../escape.a"], "include/", "lib/cmake/", False, False, outdir);
+    unsafe: list = list(rep["unsafe_members"]);
+    assert "../escape.a" in unsafe;
+    assert int(rep["members"]) == 1;                                   # only lib/ok.a written
+    assert os.path.isfile(os.path.join(outdir, "lib", "ok.a"));
+    assert not os.path.exists(os.path.join(d, "escape.a"));            # nothing escaped out_dir
     httpd.shutdown();
 }
 
