@@ -8,7 +8,8 @@ applies an optional filter, and prints a JSON document:
                                         size, upstream_sha256}, ... ]}
 
 The repackage workflow turns `.platforms` into a build matrix. Platforms are
-never hardcoded -- whatever upstream published for that version is what we emit.
+never hardcoded -- whatever upstream published is what we emit. Bodies live in
+impl/discover.impl.jac.
 
 Usage:
   jac run scripts/discover.jac <version|latest> [--filter substr1,substr2]
@@ -22,71 +23,9 @@ import from lib.model { PlatformAsset }
 
 
 # Resolve the newest non-prerelease llvmorg-X.Y.Z tag to its bare version.
-def resolve_latest() -> str {
-    out: str = run([
-        "gh", "api", "repos/llvm/llvm-project/releases", "--paginate",
-        "-q", ".[] | select(.prerelease==false) | .tag_name"
-    ]);
-    for line in out.splitlines() {
-        t: str = line.strip();
-        if t.startswith("llvmorg-") {
-            v: str = t[len("llvmorg-"):];
-            if "-" not in v {   # skip rc/alpha/beta suffixes
-                return v;
-            }
-        }
-    }
-    return "";
-}
-
-
-def _matches(triple: str, filt: str) -> bool {
-    for tok in filt.split(",") {
-        t: str = tok.strip();
-        if t != "" and t in triple {
-            return True;
-        }
-    }
-    return False;
-}
-
-
-def discover(version: str, filt: str) -> dict {
-    raw: str = run(["gh", "api", f"repos/llvm/llvm-project/releases/tags/llvmorg-{version}"]);
-    data: dict = dict(json.loads(raw));
-    assets: list = list(data["assets"]);
-
-    platforms: list = [];
-    for asset in assets {
-        a: dict = dict(asset);
-        name: str = str(a["name"]);
-        kind = classify_asset(name, version);
-        if kind is None {
-            continue;
-        }
-        if filt != "" and not _matches(kind.triple, filt) {
-            continue;
-        }
-        sha: str = "";
-        if "digest" in a and a["digest"] is not None {
-            d: str = str(a["digest"]);
-            if d.startswith("sha256:") {
-                sha = d[len("sha256:"):];
-            }
-        }
-        pa = PlatformAsset(
-            triple=kind.triple,
-            asset_name=name,
-            url=str(a["browser_download_url"]),
-            ext=kind.ext,
-            family=kind.family,
-            size=int(a["size"]) if "size" in a else 0,
-            upstream_sha256=sha,
-        );
-        platforms.append(pa.to_dict());
-    }
-    return {"version": version, "platforms": platforms};
-}
+def resolve_latest() -> str;
+def _matches(triple: str, filt: str) -> bool;
+def discover(version: str, filt: str) -> dict;
 
 
 with entry {

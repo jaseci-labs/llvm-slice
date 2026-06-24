@@ -19,15 +19,7 @@ import from lib.model { utc_now_iso }
 import from lib.shell { stdin_read }
 
 
-def _read_records(path: str) -> list[str] {
-    if path == "" {
-        return stdin_read().splitlines();
-    }
-    f = open(path, "r");
-    data: str = str(f.read());
-    f.close();
-    return data.splitlines();
-}
+def _read_records(path: str) -> list[str];
 
 
 with entry {

@@ -6,8 +6,9 @@ Steps: download (or reuse an extracted tree) -> verify sha256 -> stream-extract
 only the dev surface (lib/, include/, bin/llvm-config) -> parse the CMake package
 files -> measure each static lib -> emit manifest.json + llvm-<v>-<t>-dev.zip.
 
-If a platform lacks a usable dev surface (e.g. ships only a shared libLLVM, or
-has no lib/cmake/llvm), it is SKIPPED with a recorded reason rather than failing.
+If a platform lacks a usable dev surface (no lib/cmake/llvm, or a shared-only
+libLLVM with no component libs), it is SKIPPED with a recorded reason rather
+than failing. Bodies live in impl/repackage.impl.jac.
 
 Usage:
   jac run scripts/repackage.jac --version V --triple T \\
@@ -40,67 +41,13 @@ obj Opts {
 }
 
 
-def parse_opts(argv: list[str]) -> Opts {
-    o: Opts = Opts();
-    i: int = 0;
-    while i < len(argv) {
-        tok: str = argv[i];
-        has_next: bool = (i + 1) < len(argv);
-        nxt: str = argv[i + 1] if has_next else "";
-        if tok == "--version" { o.version = nxt; i += 1; }
-        elif tok == "--triple" { o.triple = nxt; i += 1; }
-        elif tok == "--asset-url" { o.asset_url = nxt; i += 1; }
-        elif tok == "--asset-name" { o.asset_name = nxt; i += 1; }
-        elif tok == "--ext" { o.ext = nxt; i += 1; }
-        elif tok == "--expected-sha256" { o.expected_sha256 = nxt; i += 1; }
-        elif tok == "--work-dir" { o.work_dir = nxt; i += 1; }
-        elif tok == "--out-dir" { o.out_dir = nxt; i += 1; }
-        elif tok == "--keep-work" { o.keep_work = True; }
-        i += 1;
-    }
-    return o;
-}
-
-
-def log(msg: str) -> None {
-    eprint(msg);
-}
-
-
-def emit_skip(triple: str, reason: str) -> None {
-    log(f"SKIP {triple}: {reason}");
-    print(json.dumps({"triple": triple, "skipped": True, "reason": reason}));
-}
-
+def parse_opts(argv: list[str]) -> Opts;
+def log(msg: str) -> None;
+def emit_skip(triple: str, reason: str) -> None;
 
 # Download + stream-extract only the dev surface into work_root/tree, returning
 # that prefix directory. The tarball is removed afterward to bound disk use.
-def prepare_tree(o: Opts) -> str {
-    if o.work_dir != "" {
-        return o.work_dir;
-    }
-    work_root: str = os.path.join(o.out_dir, "_work", o.triple);
-    tree: str = os.path.join(work_root, "tree");
-    os.makedirs(tree, exist_ok=True);
-    tarball: str = os.path.join(work_root, f"src.{o.ext}");
-
-    log(f"downloading {o.asset_url}");
-    run(["curl", "-sSL", "-o", tarball, o.asset_url]);
-
-    actual: str = sha256_file(tarball);
-    if o.expected_sha256 != "" and actual != o.expected_sha256 {
-        raise RuntimeError(f"sha256 mismatch: expected {o.expected_sha256}, got {actual}");
-    }
-    o.expected_sha256 = actual;   # record the verified hash
-
-    log("extracting dev surface (lib/, include/, bin/llvm-config)");
-    run([
-        "tar", "-xf", tarball, "-C", tree, "--strip-components=1", "--wildcards",
-        "*/lib/*", "*/include/*", "*/bin/llvm-config*"
-    ]);
-    os.remove(tarball);
-    return tree;
-}
+def prepare_tree(o: Opts) -> str;
 
 
 with entry {
