@@ -90,7 +90,11 @@ jobs:
       - name: Repackage ${{ matrix.triple }}
         run: |
           set -euo pipefail
-          mkdir -p out
+          # The monolithic LLVM-* toolchains extract to many GB; do the heavy
+          # download/extract/zip on /mnt (~67GB) instead of / (~21GB).
+          OUT=/mnt/llvm-out
+          sudo mkdir -p "$OUT"
+          sudo chown "$(id -u):$(id -g)" "$OUT"
           EXTRA=()
           if [ -n "${{ matrix.upstream_sha256 }}" ]; then
             EXTRA+=(--expected-sha256 "${{ matrix.upstream_sha256 }}")
@@ -102,22 +106,26 @@ jobs:
             --ext "${{ matrix.ext }}" \
             --asset-name "${{ matrix.asset_name }}" \
             "${EXTRA[@]}" \
-            --out-dir out > "out/record-${{ matrix.triple }}.json"
+            --out-dir "$OUT" > "$OUT/record-${{ matrix.triple }}.json"
           echo "--- record ---"
-          cat "out/record-${{ matrix.triple }}.json"
+          cat "$OUT/record-${{ matrix.triple }}.json"
+          df -h /mnt / | sort -u
       - uses: actions/upload-artifact@v4
         with:
           name: slice-${{ matrix.triple }}
           path: |
-            out/*-dev.zip
-            out/*-manifest.json
-            out/record-*.json
+            /mnt/llvm-out/*-dev.zip
+            /mnt/llvm-out/*-manifest.json
+            /mnt/llvm-out/record-*.json
           if-no-files-found: warn
           retention-days: 7
 
   publish:
     needs: [discover, repackage]
-    if: ${{ !inputs.dry_run }}
+    # Run as long as discovery worked and at least one platform may have
+    # succeeded: with fail-fast:false, a single platform failing must not block
+    # publishing the others. always() overrides the default skip-on-needs-failure.
+    if: ${{ always() && !inputs.dry_run && needs.discover.result == 'success' }}
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
@@ -134,7 +142,12 @@ jobs:
       - name: Assemble index.json
         run: |
           set -euo pipefail
-          cat dist/*/record-*.json > records.jsonl
+          shopt -s nullglob
+          records=(dist/*/record-*.json)
+          if [ ${#records[@]} -eq 0 ]; then
+            echo "no successful platforms to publish"; exit 1
+          fi
+          cat "${records[@]}" > records.jsonl
           jac run scripts/build_index.jac --version "$VERSION" --records records.jsonl -o index.json
           jq . index.json
       - name: Create or update release v${{ env.VERSION }}
