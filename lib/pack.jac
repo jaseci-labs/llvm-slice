@@ -34,11 +34,24 @@ def _measure(work_dir, rel_paths):
 def _build_dev_zip(work_dir, out_zip, manifest_text):
     # Deterministic ordering + fixed timestamps so re-runs of the same input
     # produce byte-identical archives.
+    workroot = os.path.realpath(work_dir)
+    skipped = 0
     entries = []
     for root, dirs, files in os.walk(work_dir):
         dirs.sort()
         for fn in files:
             full = os.path.join(root, fn)
+            # Some LLVM packages ship symlinks (e.g. lib/python*/lldb/* -> bin/*)
+            # whose targets we don't extract. Skip dangling symlinks, and skip
+            # symlinks resolving outside the tree so we never capture host files.
+            if os.path.islink(full):
+                real = os.path.realpath(full)
+                if not (real == workroot or real.startswith(workroot + os.sep)):
+                    skipped += 1
+                    continue
+            if not os.path.isfile(full):
+                skipped += 1
+                continue
             rel = os.path.relpath(full, work_dir).replace(os.sep, "/")
             entries.append((full, rel))
     entries.sort(key=lambda x: x[1])
@@ -55,7 +68,7 @@ def _build_dev_zip(work_dir, out_zip, manifest_text):
         mzi.external_attr = (0o644 & 0xFFFF) << 16
         z.writestr(mzi, manifest_text)
 
-    return {"size": os.path.getsize(out_zip), "sha256": _sha256_file(out_zip)}
+    return {"size": os.path.getsize(out_zip), "sha256": _sha256_file(out_zip), "skipped_symlinks": skipped}
 ::py::
 
 
