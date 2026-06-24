@@ -1,0 +1,157 @@
+name: Repackage LLVM release
+
+# Repackage an official LLVM release into per-platform, range-fetchable dev zips
+# + dependency manifests, and publish them as a GitHub Release on this repo.
+#
+# Every platform is processed on a single ubuntu-latest runner: repackaging is
+# execution-free (we only read text/CMake and copy files), so foreign-arch/OS
+# tarballs (Windows, macOS, aarch64, ...) are handled exactly like native ones.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "LLVM version (e.g. 18.1.8) or 'latest'"
+        type: string
+        default: "latest"
+      platforms:
+        description: "Optional comma-separated triple substrings to filter (blank = all)"
+        type: string
+        default: ""
+      dry_run:
+        description: "Build artifacts but do not publish a release"
+        type: boolean
+        default: true
+      draft_release:
+        description: "Publish the release as a draft"
+        type: boolean
+        default: false
+
+concurrency:
+  group: repackage-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  JACLANG_VERSION: "0.16.7"
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.disc.outputs.version }}
+      matrix: ${{ steps.disc.outputs.matrix }}
+      count: ${{ steps.disc.outputs.count }}
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - id: disc
+        run: |
+          set -euo pipefail
+          ARGS=("${{ inputs.version }}")
+          if [ -n "${{ inputs.platforms }}" ]; then
+            ARGS+=(--filter "${{ inputs.platforms }}")
+          fi
+          jac run scripts/discover.jac "${ARGS[@]}" > discover.json
+          cat discover.json | jq .
+          VERSION=$(jq -r .version discover.json)
+          MATRIX=$(jq -c '{include: .platforms}' discover.json)
+          COUNT=$(jq '.platforms | length' discover.json)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+          echo "Discovered $COUNT platform(s) for LLVM $VERSION"
+
+  repackage:
+    needs: discover
+    if: ${{ needs.discover.outputs.count != '0' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - name: Repackage ${{ matrix.triple }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          EXTRA=()
+          if [ -n "${{ matrix.upstream_sha256 }}" ]; then
+            EXTRA+=(--expected-sha256 "${{ matrix.upstream_sha256 }}")
+          fi
+          jac run scripts/repackage.jac \
+            --version "${{ needs.discover.outputs.version }}" \
+            --triple "${{ matrix.triple }}" \
+            --asset-url "${{ matrix.url }}" \
+            --ext "${{ matrix.ext }}" \
+            --asset-name "${{ matrix.asset_name }}" \
+            "${EXTRA[@]}" \
+            --out-dir out > "out/record-${{ matrix.triple }}.json"
+          echo "--- record ---"
+          cat "out/record-${{ matrix.triple }}.json"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ matrix.triple }}
+          path: |
+            out/*-dev.zip
+            out/*-manifest.json
+            out/record-*.json
+          if-no-files-found: warn
+          retention-days: 7
+
+  publish:
+    needs: [discover, repackage]
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ needs.discover.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Assemble index.json
+        run: |
+          set -euo pipefail
+          cat dist/*/record-*.json > records.jsonl
+          jac run scripts/build_index.jac --version "$VERSION" --records records.jsonl -o index.json
+          jq . index.json
+      - name: Create or update release v${{ env.VERSION }}
+        run: |
+          set -euo pipefail
+          DRAFT=()
+          if [ "${{ inputs.draft_release }}" = "true" ]; then DRAFT+=(--draft); fi
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --title "LLVM $VERSION (repackaged dev slices)" \
+              --notes "Range-fetchable dev zips + dependency manifests for LLVM $VERSION. Binaries are upstream's (Apache-2.0 WITH LLVM-exception); this release only repackages them. See index.json for the platform list." \
+              "${DRAFT[@]}"
+          fi
+          # Idempotent: --clobber overwrites assets so re-runs never fail on dups.
+          gh release upload "v$VERSION" --clobber \
+            dist/*/*-dev.zip dist/*/*-manifest.json index.json
+          if [ "${{ inputs.draft_release }}" != "true" ]; then
+            gh release edit "v$VERSION" --draft=false || true
+          fi
+          echo "Published v$VERSION"

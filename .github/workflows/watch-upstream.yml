@@ -1,0 +1,51 @@
+name: Watch upstream LLVM
+
+# Keep this repo's payload up to date automatically: on a daily schedule, resolve
+# the newest stable LLVM release and, if we have not published it yet, trigger the
+# repackage workflow for it (non-dry-run). This is the main "stay current" loop.
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # daily at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Dispatch repackage even if the release already exists"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: write # needed to dispatch repackage.yml
+
+env:
+  JACLANG_VERSION: "0.16.7"
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - name: Resolve newest stable LLVM and dispatch if missing
+        run: |
+          set -euo pipefail
+          LATEST=$(jac run scripts/discover.jac latest | jq -r .version)
+          if [ -z "$LATEST" ] || [ "$LATEST" = "null" ]; then
+            echo "Could not resolve latest LLVM version"; exit 1
+          fi
+          echo "Newest stable upstream LLVM: $LATEST"
+          if gh release view "v$LATEST" >/dev/null 2>&1 && [ "${{ inputs.force }}" != "true" ]; then
+            echo "v$LATEST already published here; nothing to do."
+            exit 0
+          fi
+          echo "Dispatching repackage for $LATEST"
+          gh workflow run repackage.yml \
+            -f version="$LATEST" \
+            -f dry_run=false \
+            -f draft_release=false
