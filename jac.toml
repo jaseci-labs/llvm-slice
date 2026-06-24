@@ -1,0 +1,34 @@
+[project]
+name = "llvm-slice"
+version = "0.1.0"
+description = "Repackage official LLVM releases into per-platform, range-fetchable ZIP artifacts with dependency manifests (no rebuild)."
+kind = "cli"
+entry-point = "client/llvm_slice/cli.jac"
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = ["Jaseci Labs"]
+
+# The whole toolchain is intentionally dependency-light: scripts and the client
+# CLI use only the Python standard library (urllib, zipfile, json, hashlib,
+# subprocess) plus the system `tar`/`gh`. No third-party packages are required.
+[dependencies]
+
+[run]
+# Keep runs reproducible and quiet; the graph we build for dependency resolution
+# is held off `root`, so nothing is persisted between runs.
+cache = true
+
+[check.lint]
+select = ["default"]
+
+[test]
+directory = "."
+
+# Convenience shortcuts. The CI workflows call `jac run ...` directly so they can
+# pass per-invocation arguments; these are for local use.
+[scripts]
+discover = "jac run scripts/discover.jac"
+repackage = "jac run scripts/repackage.jac"
+build-index = "jac run scripts/build_index.jac"
+slice = "jac run client/llvm_slice/cli.jac"

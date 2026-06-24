@@ -1,0 +1,21 @@
+# Jac build/runtime artifacts
+.jac/
+__pycache__/
+*.pyc
+
+# Python virtualenvs (the dev venv lives outside the repo, but ignore any local one)
+.venv/
+venv/
+
+# Repackaging scratch space and produced artifacts (never committed; these are
+# multi-gigabyte and are published as GitHub Release assets instead)
+/work/
+/out/
+/dist/
+*.tar.xz
+*.tar.gz
+*-dev.zip
+
+# Editor noise
+.DS_Store
+*.swp
