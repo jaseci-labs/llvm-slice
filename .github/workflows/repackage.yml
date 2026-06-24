@@ -151,7 +151,10 @@ jobs:
           # Idempotent: --clobber overwrites assets so re-runs never fail on dups.
           gh release upload "v$VERSION" --clobber \
             dist/*/*-dev.zip dist/*/*-manifest.json index.json
-          if [ "${{ inputs.draft_release }}" != "true" ]; then
+          # Sync draft state in BOTH directions for existing releases.
+          if [ "${{ inputs.draft_release }}" = "true" ]; then
+            gh release edit "v$VERSION" --draft || true
+          else
             gh release edit "v$VERSION" --draft=false || true
           fi
           echo "Published v$VERSION"

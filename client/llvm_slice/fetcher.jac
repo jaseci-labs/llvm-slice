@@ -81,13 +81,18 @@ def load_manifest(version: str, triple: str, repo: str, base_override: str) -> F
     url: str = f"{base}/{manifest_asset(version, triple)}";
     raw: bytes = http_get(url);
     data: dict = dict(json.loads(raw));
+    if "libs" not in data {
+        raise RuntimeError(f"manifest at {url} is missing the required 'libs' field");
+    }
     libs = lib_entries_from_json(dict(data["libs"]));
-    zip_a: str = str(data["zip_asset"]) if "zip_asset" in data else zip_asset(version, triple);
-    inc: str = str(data["include_prefix"]) if "include_prefix" in data else "include/";
-    cm: str = str(data["cmake_prefix"]) if "cmake_prefix" in data else "lib/cmake/";
+    zip_a: str = str(data["zip_asset"]) if ("zip_asset" in data and data["zip_asset"] is not None) else zip_asset(version, triple);
+    inc: str = str(data["include_prefix"]) if ("include_prefix" in data and data["include_prefix"] is not None) else "include/";
+    cm: str = str(data["cmake_prefix"]) if ("cmake_prefix" in data and data["cmake_prefix"] is not None) else "lib/cmake/";
+    ver: str = str(data["llvm_version"]) if ("llvm_version" in data and data["llvm_version"] is not None) else version;
+    trip: str = str(data["triple"]) if ("triple" in data and data["triple"] is not None) else triple;
     return FetchedManifest(
-        version=str(data["llvm_version"]),
-        triple=str(data["triple"]),
+        version=ver,
+        triple=trip,
         zip_asset=zip_a,
         include_prefix=inc,
         cmake_prefix=cm,
@@ -104,7 +109,10 @@ def fetch_slice(
     res = resolve_closure(fm.libs, roots);
 
     base: str = asset_base(version, resolve_repo(repo), base_override);
-    zurl: str = f"{base}/{zip_asset(version, triple)}";
+    # Use the manifest's recorded zip asset name (falling back to the default
+    # pattern), so a manifest with a non-standard zip_asset still resolves.
+    zname: str = fm.zip_asset if fm.zip_asset != "" else zip_asset(version, triple);
+    zurl: str = f"{base}/{zname}";
 
     # The library members to pull are exactly the closure entries that have a file.
     lib_members: list[str] = [];
