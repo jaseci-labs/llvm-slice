@@ -104,8 +104,8 @@ obj SkippedPlatform {
 # Rehydrate a manifest's `libs` object back into LibEntry instances (used by the
 # client when parsing a published manifest). Values come from json.loads as
 # `any`, so each is explicitly cast at the boundary.
-def lib_entries_from_json(libs: dict) -> dict {
-    out: dict = {};
+def lib_entries_from_json(libs: dict) -> dict[str, LibEntry] {
+    out: dict[str, LibEntry] = {};
     for raw_name in libs.keys() {
         name: str = str(raw_name);
         raw = libs[raw_name];
