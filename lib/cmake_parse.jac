@@ -110,6 +110,24 @@ def parse_imported_locations(text: str) -> dict {
 }
 
 
+# Unwrap a CMake generator expression to its inner target/flag. Installed
+# LLVMExports files wrap link-only deps as `\$<LINK_ONLY:LLVMPasses>` (the `$`
+# is backslash-escaped in the exported file). The inner name is what must be
+# classified as internal-vs-external, otherwise internal deps reachable only
+# through such an edge are dropped from the closure. Plain entries pass through.
+def _unwrap_dep(raw: str) -> str {
+    s: str = raw;
+    if s.startswith("\\") {
+        s = s[1:];
+    }
+    m = re.search(r"^\$<[A-Za-z_]+:(.+)>$", s);
+    if m is not None {
+        return str(m.group(1)).strip();
+    }
+    return raw;
+}
+
+
 # Split each available target's link entries into internal deps vs external
 # requirements, and attach its on-disk file (or None if header-only).
 def build_lib_entries(available: list[str], links: dict, locations: dict) -> dict {
@@ -120,11 +138,15 @@ def build_lib_entries(available: list[str], links: dict, locations: dict) -> dic
         deps: list[str] = [];
         external: list[str] = [];
         for d_any in raw_deps {
-            d: str = str(d_any);
+            d: str = _unwrap_dep(str(d_any));
             if d in avail_set {
-                deps.append(d);
+                if d not in deps {
+                    deps.append(d);
+                }
             } else {
-                external.append(d);
+                if d not in external {
+                    external.append(d);
+                }
             }
         }
         loc_v = locations[name] if name in locations else None;

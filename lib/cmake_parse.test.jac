@@ -103,3 +103,15 @@ test "lib entries split deps vs external correctly" {
     assert ho.deps == [];
     assert ho.external == [];
 }
+
+test "generator-expression deps are unwrapped to internal targets" {
+    available = ["LLVMCore", "LLVMPasses", "LLVMSupport"];
+    links: dict = {};
+    # Mirror the real exported form: an escaped $<LINK_ONLY:...> wrapping an
+    # internal target, alongside a plain internal dep and a real external flag.
+    links["LLVMCore"] = ["\\$<LINK_ONLY:LLVMPasses>", "LLVMSupport", "-lpthread"];
+    entries = build_lib_entries(available, links, {});
+    core = entries["LLVMCore"];
+    assert core.deps == ["LLVMPasses", "LLVMSupport"];
+    assert core.external == ["-lpthread"];
+}
