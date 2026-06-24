@@ -34,7 +34,9 @@ decompress the *entire* stream. Linking a subset doesn't save you anything: you 
 
 For each LLVM release and each platform LLVM publishes, it:
 
-1. **Downloads** the official `clang+llvm-*` tarball.
+1. **Downloads** the official tarball — both upstream naming families are handled
+   (`clang+llvm-<version>-<triple>.tar.{xz,gz}` and the newer
+   `LLVM-<version>-<OS>-<ARCH>.tar.xz`); platforms are discovered dynamically, never hardcoded.
 2. **Extracts** only the development surface — static libs, headers, CMake package files, `llvm-config`.
 3. **Repackages** it as a **plain ZIP** (DEFLATE + central directory) so any HTTP client can fetch individual
    members via **Range requests**. `tar.xz` can't do random access; a ZIP central directory can.
@@ -54,23 +56,36 @@ range-fetchable access plus dependency metadata**, available uniformly for every
 
 ## Quickstart
 
-A small, dependency-light Python CLI proves the round trip:
+The whole toolchain is written in [Jac](https://jaseci.org) and is
+dependency-light — the client and scripts use only the Python standard library
+(`urllib`, `zipfile`, `json`, `hashlib`, `subprocess`) plus the system
+`tar`/`gh`. Install the compiler and use the `bin/llvm-slice` wrapper (or
+`jac run client/llvm_slice/cli.jac`):
 
 ```bash
+pip install jaclang
+
 # 1. See what's available for a platform
-llvm-slice list --version 20.1.8 --triple x86_64-linux-gnu-ubuntu-22.04
+bin/llvm-slice list --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04
 
 # 2. Compute the closure for the libs you link (+ the external link flags you'll need)
-llvm-slice resolve --version 20.1.8 --triple x86_64-linux-gnu-ubuntu-22.04 \
+bin/llvm-slice resolve --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04 \
   --libs LLVMOrcJIT,LLVMX86CodeGen
+# closure: 57 libraries (static link order, dependents first)
+#   LLVMX86CodeGen LLVMX86Desc … LLVMCore LLVMSupport LLVMDemangle
+# external link requirements: -lpthread rt dl m ZLIB::ZLIB Terminfo::terminfo
 
 # 3. Fetch ONLY those members over HTTP Range requests
-llvm-slice fetch --version 20.1.8 --triple x86_64-linux-gnu-ubuntu-22.04 \
+bin/llvm-slice fetch --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04 \
   --libs LLVMOrcJIT,LLVMX86CodeGen --headers --cmake -o ./out
+# fetched 120 members (57 libs in closure) -> ./out
+# transferred ~35 MB of ~804 MB (≈4% of the full zip)
 ```
 
 You get back a directory you can point CMake at (`CMAKE_PREFIX_PATH` / `LLVM_DIR`) or feed to a raw link
-line — having transferred a fraction of the bytes a full tarball would cost.
+line — having transferred a fraction of the bytes a full tarball would cost. See
+[`docs/usage-cmake.md`](docs/usage-cmake.md) for both consumption paths and
+[`docs/manifest-schema.md`](docs/manifest-schema.md) for the manifest format.
 
 ## How the dependency graph is computed (and why it's trustworthy)
 
@@ -102,11 +117,44 @@ Per LLVM release (tagged `v<llvm-version>` here), every platform gets:
 > GitHub release-asset downloads redirect to a CDN that supports byte ranges; the CLI verifies this with an
 > `Accept-Ranges` check and falls back to a full download (with a warning) if a mirror ever doesn't.
 
-## Status & contributing
+## How releases are produced (and kept current)
 
-🚧 **Early days.** The full specification and implementation plan live in the pinned issue — that's the best
-place to understand the design or pick up a piece. Issues and PRs from anyone who consumes LLVM are very
-welcome; the more projects this serves, the better it does its job.
+Everything runs in GitHub Actions — no LLVM is ever rebuilt:
+
+- **`repackage.yml`** (manual `workflow_dispatch`): a `discover` job queries
+  upstream and emits a dynamic build matrix; one `repackage` job per platform
+  downloads → verifies sha256 → stream-extracts the dev surface → parses the
+  CMake files → emits the dev zip + manifest; a `publish` job assembles
+  `index.json` and uploads everything to the `v<version>` release (idempotently,
+  so re-runs never fail on duplicate assets).
+- **`watch-upstream.yml`** (daily schedule): resolves the newest stable LLVM
+  release and, if it isn't published here yet, dispatches `repackage.yml` for it
+  — so the payload stays current automatically.
+- **`ci.yml`**: `jac check` + `jac test` on every push/PR.
+
+Because repackaging is **execution-free**, every platform is processed on a
+single `ubuntu-latest` runner.
+
+## Repository layout
+
+```
+lib/        shared Jac: data model, asset classifier, CMake parser, shell/zip helpers
+scripts/    discover.jac · repackage.jac · build_index.jac  (run from the repo root)
+client/     llvm_slice/  the CLI: cli · resolve (object-spatial closure) · rangezip · fetcher
+bin/        llvm-slice   wrapper around the client CLI
+docs/       manifest-schema.md · usage-cmake.md
+.github/    workflows/   repackage · watch-upstream · ci
+```
+
+Develop with `jac check <file>` and `jac test <module>.jac`. The dependency
+closure is modeled with Jac's object-spatial walkers (an off-`root` LibNode /
+DependsOn graph) — see `client/llvm_slice/resolve.jac`.
+
+## Contributing
+
+Issues and PRs from anyone who consumes LLVM are very welcome; the more projects
+this serves, the better it does its job. The original design brief lives in the
+repo's first issue.
 
 ## License & credit
 
