@@ -1,0 +1,85 @@
+name: Publish to PyPI
+
+# Build the wheel + sdist with `jac bundle` and upload them to PyPI.
+#
+# Setup (one-time): create a PyPI API token (https://pypi.org/manage/account/token/)
+# and save it as the repository secret `PYPI_API_TOKEN` (Settings -> Secrets and
+# variables -> Actions). That is the only credential needed.
+#
+# Release flow: bump `version` in jac.toml, then push a matching tool tag:
+#     git tag tool-v0.1.0 && git push origin tool-v0.1.0
+# The tag push builds and publishes. (Tool releases use the `tool-v*` prefix so
+# they never collide with the `v<llvm-version>` tags used for the repackaged
+# LLVM payload releases.) You can also run it manually from the Actions tab
+# (workflow_dispatch) with "dry_run" to build + validate without uploading.
+
+on:
+  push:
+    tags: ["tool-v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and validate only; do not upload to PyPI"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  # The `jac` toolchain ships as a single self-contained binary; `jac bundle`
+  # (the wheel builder) only exists on this 0.30+ line, not on the 0.16.7
+  # jaclang that is still on PyPI.
+  JAC_VERSION: "0.30.1"
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the jac binary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          asset="jac-${JAC_VERSION}-linux-x86_64"
+          gh release download "jaclang-${JAC_VERSION}" \
+            --repo jaseci-labs/jaseci -p "${asset}*" --clobber
+          sha256sum -c "${asset}.sha256"
+          mkdir -p "$HOME/.local/bin"
+          install -m 0755 "$asset" "$HOME/.local/bin/jac"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          rm -f "$asset" "${asset}.sha256"
+
+      - run: jac --version
+
+      - name: Verify the tag matches jac.toml version
+        if: startsWith(github.ref, 'refs/tags/tool-v')
+        run: |
+          set -euo pipefail
+          tag_ver="${GITHUB_REF_NAME#tool-v}"
+          toml_ver="$(grep -E '^version[[:space:]]*=' jac.toml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')"
+          echo "tag=$tag_ver  jac.toml=$toml_ver"
+          if [ "$tag_ver" != "$toml_ver" ]; then
+            echo "::error::tag v$tag_ver does not match jac.toml version $toml_ver -- bump jac.toml first"
+            exit 1
+          fi
+
+      - name: Build wheel + sdist
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          jac bundle -o dist
+          ls -l dist
+
+      - name: Validate distributions
+        run: pipx run twine check dist/*
+
+      - name: Publish to PyPI
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          packages-dir: dist
+          skip-existing: true

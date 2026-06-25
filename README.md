@@ -54,29 +54,50 @@ range-fetchable access plus dependency metadata**, available uniformly for every
 | Random access to one file | ❌ decompress the whole stream | ✅ central directory + Range GET |
 | Get N libs out of hundreds | download everything | download only those members |
 
-## Quickstart
+## Install
 
-The whole toolchain is written in [Jac](https://jaseci.org) and is
-dependency-light — the client and scripts use only the Python standard library
-(`urllib`, `zipfile`, `json`, `hashlib`, `subprocess`) plus the system
-`tar`/`gh`. Install the compiler and use the `bin/llvm-slice` wrapper (or
-`jac run llvm_slice/cli.jac`):
+The primary path needs **no Python** — `install.sh` fetches a self-contained
+`jac` runtime plus llvm-slice and drops a `llvm-slice` command on your PATH
+(supported: linux-x86_64, linux-aarch64, macos-aarch64):
 
 ```bash
-pip install jaclang
+curl -fsSL https://raw.githubusercontent.com/jaseci-labs/llvm-slice/main/install.sh | sh
+```
 
+Pin a version with `LLVM_SLICE_REF=tool-v0.1.0`; relocate the install with
+`LLVM_SLICE_PREFIX` / `LLVM_SLICE_BINDIR` (defaults `~/.llvm-slice` and
+`~/.local/bin`).
+
+On any platform with Python ≥ 3.10, install from PyPI instead — this adds the
+`llvm-slice` command to a Jac-enabled environment (the runtime is the
+still-on-PyPI `jaclang`):
+
+```bash
+pip install jaclang llvm-slice
+```
+
+Or run straight from a checkout with the `jac` toolchain on PATH: `bin/llvm-slice …`
+(a thin wrapper around `jac run llvm_slice/cli.jac`).
+
+## Quickstart
+
+The whole tool is written in [Jac](https://jaseci.org) and is dependency-light —
+it uses only the Python standard library (`urllib`, `zipfile`, `json`,
+`hashlib`) plus the system `tar`/`gh`.
+
+```bash
 # 1. See what's available for a platform
-bin/llvm-slice list --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04
+llvm-slice list --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04
 
 # 2. Compute the closure for the libs you link (+ the external link flags you'll need)
-bin/llvm-slice resolve --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04 \
+llvm-slice resolve --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04 \
   --libs LLVMOrcJIT,LLVMX86CodeGen
 # closure: 57 libraries (static link order, dependents first)
 #   LLVMX86CodeGen LLVMX86Desc … LLVMCore LLVMSupport LLVMDemangle
 # external link requirements: -lpthread rt dl m ZLIB::ZLIB Terminfo::terminfo
 
 # 3. Fetch ONLY those members over HTTP Range requests
-bin/llvm-slice fetch --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04 \
+llvm-slice fetch --version 18.1.8 --triple x86_64-linux-gnu-ubuntu-18.04 \
   --libs LLVMOrcJIT,LLVMX86CodeGen --headers --cmake -o ./out
 # fetched 120 members (57 libs in closure) -> ./out
 # transferred ~35 MB of ~804 MB (≈4% of the full zip)
@@ -135,15 +156,27 @@ Everything runs in GitHub Actions — no LLVM is ever rebuilt:
 Because repackaging is **execution-free**, every platform is processed on a
 single `ubuntu-latest` runner.
 
+The CLI tool itself is released independently of the LLVM payload, on a
+`tool-v<version>` tag (distinct from the `v<llvm-version>` payload tags):
+
+- **`publish-pypi.yml`** (on a `tool-v*` tag): builds the wheel with `jac
+  bundle` and uploads it to PyPI. One-time setup: add a `PYPI_API_TOKEN`
+  repository secret.
+- **`release-native.yml`** (on a `tool-v*` tag): smoke-tests `install.sh` on
+  Linux and macOS, then publishes the GitHub release with the installer
+  attached. No secret required.
+
 ## Repository layout
 
 ```
-lib/        shared Jac: data model, asset classifier, CMake parser, shell/zip helpers
+llvm_slice/ the CLI package (published to PyPI): cli · resolve (object-spatial
+            closure) · rangezip · fetcher · model
+lib/        repackaging-side Jac: asset classifier, CMake parser, shell/zip helpers
 scripts/    discover.jac · repackage.jac · build_index.jac  (run from the repo root)
-client/     llvm_slice/  the CLI: cli · resolve (object-spatial closure) · rangezip · fetcher
-bin/        llvm-slice   wrapper around the client CLI
+bin/        llvm-slice   wrapper around the CLI for local checkouts
+install.sh  no-Python curl installer (jac runtime + sources)
 docs/       manifest-schema.md · usage-cmake.md
-.github/    workflows/   repackage · watch-upstream · ci
+.github/    workflows/   repackage · watch-upstream · ci · publish-pypi · release-native
 ```
 
 Develop with `jac check <file>` and `jac test <module>.jac`. The dependency

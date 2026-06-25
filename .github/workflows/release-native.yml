@@ -1,0 +1,61 @@
+name: Release native installer
+
+# Verifies the curl|sh installer on real platforms, then publishes a GitHub
+# Release for the tool tag with install.sh attached (so installs can be pinned
+# to a version: curl .../releases/download/tool-vX.Y.Z/install.sh).
+#
+# The "native" distribution is the self-contained `jac` runtime (published by
+# the Jaseci project) plus these sources -- no per-platform binary of our own is
+# built (the runtime *is* the binary). install.sh assembles them on the user's
+# machine. No secrets are required; it uploads only to this repo's own release.
+
+on:
+  push:
+    tags: ["tool-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  smoke-test:
+    name: install.sh on ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install from this exact commit and run it
+        env:
+          # Install the sources at the commit under test (github serves
+          # archive/<sha>.tar.gz), not whatever main happens to be.
+          LLVM_SLICE_REF: ${{ github.sha }}
+        run: |
+          set -eu
+          sh ./install.sh
+          export PATH="$HOME/.local/bin:$PATH"
+          echo "== llvm-slice list =="
+          llvm-slice list --version 22.1.8 --triple x86_64-linux \
+            --repo jaseci-labs/llvm-slice | head -3
+          echo "== llvm-slice resolve =="
+          llvm-slice resolve --version 22.1.8 --triple x86_64-linux \
+            --repo jaseci-labs/llvm-slice --libs LLVMCore | head -2
+
+  publish:
+    needs: smoke-test
+    if: startsWith(github.ref, 'refs/tags/tool-v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create/refresh the release with the pinned installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+                 --title "llvm-slice ${tag#tool-}" --generate-notes --verify-tag
+          gh release upload "$tag" install.sh --clobber --repo "$GITHUB_REPOSITORY"
