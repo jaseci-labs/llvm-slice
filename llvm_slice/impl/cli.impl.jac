@@ -1,4 +1,4 @@
-"""Implementations for client/llvm_slice/cli.jac."""
+"""Implementations for llvm_slice/cli.jac."""
 
 impl _split_libs(s: str) -> list[str] {
     out: list[str] = [];
@@ -141,4 +141,25 @@ impl usage() -> None {
     print("  resolve  --version V --triple T --libs A,B,C");
     print("  fetch    --version V --triple T --libs A,B,C [--headers] [--cmake] -o DIR");
     print("options: --repo owner/name | --base-url URL");
+}
+
+
+impl main() -> int {
+    a: Args = parse_args(sys.argv[1:]);
+    if not a.ok {
+        print("error: " + a.error);
+        usage();
+        return 2;
+    }
+    if a.cmd == "list" {
+        return cmd_list(a);
+    }
+    if a.cmd == "resolve" {
+        return cmd_resolve(a);
+    }
+    if a.cmd == "fetch" {
+        return cmd_fetch(a);
+    }
+    usage();
+    return 2;
 }

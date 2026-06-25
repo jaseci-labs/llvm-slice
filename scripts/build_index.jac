@@ -15,7 +15,7 @@ Usage:
 
 import sys;
 import json;
-import from lib.model { utc_now_iso }
+import from llvm_slice.model { utc_now_iso }
 import from lib.shell { stdin_read }
 
 

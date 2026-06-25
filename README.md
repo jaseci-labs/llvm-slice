@@ -60,7 +60,7 @@ The whole toolchain is written in [Jac](https://jaseci.org) and is
 dependency-light — the client and scripts use only the Python standard library
 (`urllib`, `zipfile`, `json`, `hashlib`, `subprocess`) plus the system
 `tar`/`gh`. Install the compiler and use the `bin/llvm-slice` wrapper (or
-`jac run client/llvm_slice/cli.jac`):
+`jac run llvm_slice/cli.jac`):
 
 ```bash
 pip install jaclang
@@ -148,7 +148,7 @@ docs/       manifest-schema.md · usage-cmake.md
 
 Develop with `jac check <file>` and `jac test <module>.jac`. The dependency
 closure is modeled with Jac's object-spatial walkers (an off-`root` LibNode /
-DependsOn graph) — see `client/llvm_slice/resolve.jac`.
+DependsOn graph) — see `llvm_slice/resolve.jac`.
 
 ## Contributing
 

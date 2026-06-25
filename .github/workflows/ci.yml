@@ -26,7 +26,7 @@ jobs:
       - name: Type-check entry points
         run: |
           set -euo pipefail
-          jac check client/llvm_slice/cli.jac
+          jac check llvm_slice/cli.jac
           jac check scripts/discover.jac
           jac check scripts/repackage.jac
           jac check scripts/build_index.jac
@@ -34,7 +34,7 @@ jobs:
         run: |
           set -euo pipefail
           for m in lib/classify.jac lib/cmake_parse.jac \
-                   client/llvm_slice/resolve.jac client/llvm_slice/rangezip.jac; do
+                   llvm_slice/resolve.jac llvm_slice/rangezip.jac; do
             echo "== jac test $m =="
             jac test "$m"
           done

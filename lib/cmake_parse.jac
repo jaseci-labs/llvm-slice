@@ -15,7 +15,7 @@ Function bodies live in impl/cmake_parse.impl.jac."""
 
 import re;
 import os;
-import from lib.model { LibEntry }
+import from llvm_slice.model { LibEntry }
 
 
 obj ParsedPackage {

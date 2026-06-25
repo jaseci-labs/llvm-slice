@@ -25,7 +25,7 @@ import json;
 import from lib.shell { run, eprint }
 import from lib.cmake_parse { parse_cmake_dir, has_dev_surface }
 import from lib.pack { measure, build_dev_zip, sha256_file }
-import from lib.model { Manifest, LibEntry }
+import from llvm_slice.model { Manifest, LibEntry }
 
 
 obj Opts {

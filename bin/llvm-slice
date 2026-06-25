@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 # Thin wrapper around the Jac client CLI. Runs from the repo root so the
-# `lib.*` / `client.*` module imports resolve. Requires `jac` (pip install
-# jaclang) on PATH.
+# `llvm_slice.*` module imports resolve. Requires `jac` on PATH.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$here"
-exec jac run client/llvm_slice/cli.jac "$@"
+exec jac run llvm_slice/cli.jac "$@"

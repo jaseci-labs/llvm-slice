@@ -16,6 +16,9 @@ venv/
 *.tar.gz
 *-dev.zip
 
+# Local toolchain scratch (downloaded jac binary, test bundles)
+/.tooltest/
+
 # Editor noise
 .DS_Store
 *.swp

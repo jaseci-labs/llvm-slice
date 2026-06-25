@@ -10,9 +10,9 @@ impl/fetcher.impl.jac."""
 import json;
 import os;
 import from urllib.request { urlopen }
-import from lib.model { LibEntry, lib_entries_from_json }
-import from client.llvm_slice.resolve { resolve_closure }
-import from client.llvm_slice.rangezip { fetch_members }
+import from llvm_slice.model { LibEntry, lib_entries_from_json }
+import from llvm_slice.resolve { resolve_closure }
+import from llvm_slice.rangezip { fetch_members }
 
 glob DEFAULT_REPO: str = "jaseci-labs/llvm-slice";
 

@@ -19,7 +19,7 @@ import sys;
 import json;
 import from lib.shell { run, eprint }
 import from lib.classify { classify_asset }
-import from lib.model { PlatformAsset }
+import from llvm_slice.model { PlatformAsset }
 
 
 # Resolve the newest non-prerelease llvmorg-X.Y.Z tag to its bare version.

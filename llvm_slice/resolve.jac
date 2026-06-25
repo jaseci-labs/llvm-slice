@@ -8,7 +8,7 @@ requested roots to gather the reachable set + merged externals, then order the
 closure into a valid static link line (each library before its dependencies) via
 a DFS post-order. Bodies live in impl/resolve.impl.jac."""
 
-import from lib.model { LibEntry }
+import from llvm_slice.model { LibEntry }
 
 
 node LibNode {
