@@ -26,6 +26,10 @@ on:
         description: "Publish the release as a draft"
         type: boolean
         default: false
+      build_musl:
+        description: "Also build the musl slice from source (Alpine, ~2-3h/arch). musl has no upstream release to repackage."
+        type: boolean
+        default: true
 
 concurrency:
   group: repackage-${{ inputs.version }}
@@ -120,8 +124,73 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
+  # musl has no upstream LLVM release, so its slice is built from source on
+  # Alpine and fed to the same repackage.jac (--work-dir). publish globs its
+  # slice-* artifacts with the rest, so one run emits a complete index.
+  build-musl:
+    needs: discover
+    if: ${{ inputs.build_musl }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            triple: x86_64-linux-musl
+          - os: ubuntu-24.04-arm
+            triple: aarch64-linux-musl
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.discover.outputs.version }}
+      TRIPLE: ${{ matrix.triple }}
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - name: Build LLVM ${{ env.VERSION }} from source (musl, ${{ matrix.triple }})
+        run: |
+          set -euo pipefail
+          # Heavy build tree on /mnt (~67GB) rather than / (~21GB).
+          sudo mkdir -p /mnt/llvm-musl /mnt/llvm-out
+          sudo chown -R "$(id -u):$(id -g)" /mnt/llvm-musl /mnt/llvm-out
+          docker run --rm -v /mnt:/mnt -v "$PWD:/repo" -w /repo \
+            -e VERSION -e TRIPLE alpine:3.21 \
+            sh scripts/build_llvm_musl.sh "/mnt/llvm-musl/${TRIPLE}" "$VERSION" all
+      - name: Repackage the musl tree into a dev slice
+        run: |
+          set -euo pipefail
+          REC="/mnt/llvm-out/record-${TRIPLE}.json"
+          SHA="$(cat "/mnt/llvm-musl/${TRIPLE}.source-sha")"
+          jac run scripts/repackage.jac \
+            --version "$VERSION" \
+            --triple "$TRIPLE" \
+            --work-dir "/mnt/llvm-musl/${TRIPLE}" \
+            --asset-name "llvm-project@${SHA} (llvmorg-${VERSION}, musl, from source)" \
+            --out-dir /mnt/llvm-out > "$REC"
+          echo "--- record ---"; cat "$REC"
+          # Fail loudly if the from-source tree didn't yield a usable slice,
+          # rather than silently publishing an index with no musl entry.
+          jq -e '.skipped == false and (.lib_count // 0) > 0' "$REC" >/dev/null \
+            || { echo "musl repackage produced no libs (skipped or empty)" >&2; exit 1; }
+          df -h /mnt / | sort -u
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ matrix.triple }}
+          path: |
+            /mnt/llvm-out/*-dev.zip
+            /mnt/llvm-out/*-manifest.json
+            /mnt/llvm-out/record-*.json
+          if-no-files-found: warn
+          retention-days: 7
+
   publish:
-    needs: [discover, repackage]
+    needs: [discover, repackage, build-musl]
     # Run as long as discovery worked and at least one platform may have
     # succeeded: with fail-fast:false, a single platform failing must not block
     # publishing the others. always() overrides the default skip-on-needs-failure.

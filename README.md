@@ -7,9 +7,10 @@ few `.a`/`.lib` files you download a multi-gigabyte `clang+llvm-*.tar.xz`, decom
 throw away 95% of it. `llvm-slice` exists to make that unnecessary for **any** project, on **any** platform
 LLVM ships — by turning the official releases into artifacts you can fetch *piece by piece*.
 
-> 🙌 **This is community infrastructure, not a fork.** We do **not** build, patch, or reconfigure LLVM. We
-> repackage the binaries LLVM already publishes so they're cheaper to consume. All credit for the toolchain
-> belongs to the [LLVM project](https://llvm.org).
+> 🙌 **This is community infrastructure, not a fork.** For every platform LLVM publishes, we repackage the
+> binaries LLVM already ships — we do **not** patch or reconfigure them. The one exception is **musl**, which
+> upstream does not release at all: that slice is built from source (unmodified LLVM) so musl consumers get
+> the same dev surface. All credit for the toolchain belongs to the [LLVM project](https://llvm.org).
 
 ## Who this is for
 
@@ -140,21 +141,32 @@ Per LLVM release (tagged `v<llvm-version>` here), every platform gets:
 
 ## How releases are produced (and kept current)
 
-Everything runs in GitHub Actions — no LLVM is ever rebuilt:
+Everything runs in GitHub Actions:
 
 - **`repackage.yml`** (manual `workflow_dispatch`): a `discover` job queries
   upstream and emits a dynamic build matrix; one `repackage` job per platform
   downloads → verifies sha256 → stream-extracts the dev surface → parses the
   CMake files → emits the dev zip + manifest; a `publish` job assembles
   `index.json` and uploads everything to the `v<version>` release (idempotently,
-  so re-runs never fail on duplicate assets).
+  so re-runs never fail on duplicate assets). A `build-musl` job (toggle
+  `build_musl`, on by default) builds LLVM from source on Alpine
+  (`scripts/build_llvm_musl.sh`) and feeds the result to the same repackage
+  step, so musl — which upstream never releases — lands in the same index.
 - **`watch-upstream.yml`** (daily schedule): resolves the newest stable LLVM
   release and, if it isn't published here yet, dispatches `repackage.yml` for it
   — so the payload stays current automatically.
 - **`ci.yml`**: `jac check` + `jac test` on every push/PR.
 
-Because repackaging is **execution-free**, every platform is processed on a
-single `ubuntu-latest` runner.
+Because repackaging is **execution-free**, every upstream platform is processed
+on a single `ubuntu-latest` runner. Only the from-source musl slice is an
+exception: it compiles LLVM in an Alpine container (per-arch runner).
+
+> **Consuming the musl slice:** like every slice, it ships only LLVM's own
+> static libs, not its external link deps. The manifest lists those (`zlib`,
+> `zstd`, `libxml2`, ...) as `external` requirements; a musl consumer must
+> supply musl builds of them at link time (e.g. Alpine `zlib-dev` / `zstd-dev`
+> / `libxml2-dev`) and do its own musl linking. Publishing the slice does not by
+> itself make a downstream project (e.g. jaclang) musl-ready.
 
 The CLI tool itself is released independently of the LLVM payload, on a
 `tool-v<version>` tag (distinct from the `v<llvm-version>` payload tags):
@@ -172,7 +184,7 @@ The CLI tool itself is released independently of the LLVM payload, on a
 llvm_slice/ the CLI package (published to PyPI): cli · resolve (object-spatial
             closure) · rangezip · fetcher · model
 lib/        repackaging-side Jac: asset classifier, CMake parser, shell/zip helpers
-scripts/    discover.jac · repackage.jac · build_index.jac  (run from the repo root)
+scripts/    discover.jac · repackage.jac · build_index.jac · build_llvm_musl.sh  (run from the repo root)
 bin/        llvm-slice   wrapper around the CLI for local checkouts
 install.sh  no-Python curl installer (jac runtime + sources)
 docs/       manifest-schema.md · usage-cmake.md
