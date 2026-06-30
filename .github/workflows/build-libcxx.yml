@@ -110,7 +110,9 @@ jobs:
         # runtime (libc++) and the glibc floor for every translation unit.
         run: |
           set -euo pipefail
-          mkdir -p /mnt/zig-wrap
+          # /mnt is root-owned on GH runners; create + chown like the stage step.
+          sudo mkdir -p /mnt/zig-wrap
+          sudo chown "$(id -u):$(id -g)" /mnt/zig-wrap
           cat > /mnt/zig-wrap/zcc <<EOF
           #!/bin/sh
           exec zig cc -target ${ZIG_TARGET} "\$@"
