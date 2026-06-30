@@ -1,0 +1,231 @@
+name: Build libc++ LLVM slice
+
+# Build a libc++ LLVM from source and publish it as a range-fetchable dev slice,
+# in the SAME zip+manifest format the repackage path produces for official
+# tarballs. This is the one place in this repo that DOES build LLVM: the official
+# Linux releases are libstdc++ (std::__cxx11::*), and a consumer that links the
+# archives with a libc++ toolchain (e.g. Zig's `zig c++`) needs the matching
+# libc++ ABI (std::__1::*). No upstream release ships a libc++ Linux build, so it
+# has to be produced here.
+#
+# The compiler is `zig cc`/`zig c++` pinned to an explicit glibc floor
+# (x86_64-linux-gnu.2.17). That single choice gives three properties at once:
+#   - libc++ ABI    -- zig c++ uses libc++, so the archives are std::__1::*.
+#   - low glibc floor -- the archives' libc references resolve at 2.17 when a
+#                        consumer links them, matching CPython's manylinux2014 floor.
+#   - no arc4random  -- configure probes against the 2.17 headers, so the 2.36+
+#                        arc4random symbol is never detected and never referenced.
+# No container and no special runner: a plain ubuntu-latest runner with Zig.
+#
+# Downstream is unchanged: the built install tree flows through the existing
+# `scripts/repackage.jac --work-dir` path (classify CMake -> measure libs -> emit
+# dev zip + manifest -> index.json), exactly like an official tarball.
+#
+# Scope: x86_64 first (a native build -- same arch, only the glibc floor and C++
+# runtime differ). aarch64 is a cross build and is left for a follow-up.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "LLVM version to build (matches the upstream llvmorg-<version> tag)"
+        type: string
+        default: "22.1.8"
+      targets:
+        description: "LLVM_TARGETS_TO_BUILD (semicolon-separated)"
+        type: string
+        default: "X86;AArch64"
+      dry_run:
+        description: "Build the slice but do not publish a release"
+        type: boolean
+        default: true
+      draft_release:
+        description: "Publish the release as a draft"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-libcxx-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  JACLANG_VERSION: "0.16.7"
+  ZIG_VERSION: "0.16.0"
+  # The slice triple for the libc++ build. Distinct from the official
+  # `x86_64-linux` slice so both can coexist on the same v<version> release.
+  SLICE_TRIPLE: "x86_64-linux-libcxx"
+  # Glibc floor baked into the archives' libc references (matches CPython/PBS).
+  ZIG_TARGET: "x86_64-linux-gnu.2.17"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      record: ${{ steps.pack.outputs.record }}
+    steps:
+      - name: Free disk space
+        # A full LLVM build + install is many GB; reclaim the image's bulky
+        # preinstalled toolchains and build on /mnt (~67 GB) like repackage.yml.
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
+            /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+          df -h /
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Stage build dirs on /mnt
+        run: |
+          set -euo pipefail
+          for d in src build install out; do
+            sudo mkdir -p "/mnt/llvm-$d"
+            sudo chown "$(id -u):$(id -g)" "/mnt/llvm-$d"
+          done
+
+      - name: Fetch LLVM source
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${V}/llvm-project-${V}.src.tar.xz"
+          echo "downloading $URL"
+          curl -fsSL -o /mnt/llvm-src/llvm-project.tar.xz "$URL"
+          tar -xf /mnt/llvm-src/llvm-project.tar.xz -C /mnt/llvm-src --strip-components=1
+          rm -f /mnt/llvm-src/llvm-project.tar.xz
+          test -d /mnt/llvm-src/llvm
+
+      - name: Zig compiler wrappers (libc++ + glibc 2.17 floor)
+        # cmake needs a single-token compiler path; wrap the multi-word `zig cc`
+        # / `zig c++ -target ...` invocations. The target pins both the C++
+        # runtime (libc++) and the glibc floor for every translation unit.
+        run: |
+          set -euo pipefail
+          mkdir -p /mnt/zig-wrap
+          cat > /mnt/zig-wrap/zcc <<EOF
+          #!/bin/sh
+          exec zig cc -target ${ZIG_TARGET} "\$@"
+          EOF
+          cat > /mnt/zig-wrap/zcxx <<EOF
+          #!/bin/sh
+          exec zig c++ -target ${ZIG_TARGET} "\$@"
+          EOF
+          chmod +x /mnt/zig-wrap/zcc /mnt/zig-wrap/zcxx
+
+      - name: Configure (CMake + Ninja, static libc++ dev surface)
+        # Static archives only, no shared libLLVM, no tools/tests/examples, and
+        # every optional host-probing external OFF: the consuming shim links the
+        # archives statically with Zig and cannot pull host .so deps (-lz, -lzstd,
+        # libxml2, terminfo, ...), so LLVM must not reference them.
+        run: |
+          set -euo pipefail
+          cmake -G Ninja \
+            -S /mnt/llvm-src/llvm \
+            -B /mnt/llvm-build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=/mnt/zig-wrap/zcc \
+            -DCMAKE_CXX_COMPILER=/mnt/zig-wrap/zcxx \
+            -DCMAKE_INSTALL_PREFIX=/mnt/llvm-install \
+            -DLLVM_ENABLE_LIBCXX=ON \
+            -DLLVM_TARGETS_TO_BUILD="${{ inputs.targets }}" \
+            -DLLVM_ENABLE_PROJECTS="" \
+            -DLLVM_ENABLE_RUNTIMES="" \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_LINK_LLVM_DYLIB=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBEDIT=OFF \
+            -DLLVM_ENABLE_LIBPFM=OFF \
+            -DLLVM_ENABLE_CURL=OFF \
+            -DLLVM_ENABLE_HTTPLIB=OFF
+
+      - name: Build + install
+        run: |
+          set -euo pipefail
+          ninja -C /mnt/llvm-build install
+          df -h /mnt /
+
+      - name: Prune install to the dev surface
+        # build_dev_zip walks the whole tree; the official slice ships only
+        # lib/ + include/ + bin/llvm-config, so drop the rest of bin/ (llc, opt,
+        # ...) to keep the slice lean.
+        run: |
+          set -euo pipefail
+          find /mnt/llvm-install/bin -mindepth 1 -maxdepth 1 \
+            ! -name 'llvm-config' -exec rm -rf {} + || true
+          test -f /mnt/llvm-install/lib/cmake/llvm/LLVMConfig.cmake
+          test -f /mnt/llvm-install/lib/cmake/llvm/LLVMExports.cmake
+
+      - name: Repackage built tree into a dev slice
+        id: pack
+        run: |
+          set -euo pipefail
+          jac run scripts/repackage.jac \
+            --version "${{ inputs.version }}" \
+            --triple "${SLICE_TRIPLE}" \
+            --work-dir /mnt/llvm-install \
+            --out-dir /mnt/llvm-out > /mnt/llvm-out/record-${SLICE_TRIPLE}.json
+          echo "--- record ---"
+          cat /mnt/llvm-out/record-${SLICE_TRIPLE}.json
+          echo "record=$(cat /mnt/llvm-out/record-${SLICE_TRIPLE}.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ env.SLICE_TRIPLE }}
+          path: |
+            /mnt/llvm-out/*-dev.zip
+            /mnt/llvm-out/*-manifest.json
+            /mnt/llvm-out/record-*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Upload libc++ slice to release v${{ env.VERSION }}
+        # Coexists with the official repackaged slices on the same v<version>
+        # release; the -libcxx triple keeps the asset names distinct. --clobber
+        # makes re-runs idempotent. Reuses (does not replace) index.json from the
+        # repackage workflow -- the libc++ slice is consumed by triple directly.
+        run: |
+          set -euo pipefail
+          DRAFT=()
+          if [ "${{ inputs.draft_release }}" = "true" ]; then DRAFT+=(--draft); fi
+          if ! gh release view "v$VERSION" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --title "LLVM $VERSION (repackaged dev slices)" \
+              --notes "Range-fetchable dev zips + dependency manifests for LLVM $VERSION." \
+              "${DRAFT[@]}"
+          fi
+          gh release upload "v$VERSION" --clobber \
+            dist/*/*-dev.zip dist/*/*-manifest.json
+          echo "Published libc++ slice for v$VERSION"

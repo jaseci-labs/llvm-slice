@@ -7,9 +7,14 @@ few `.a`/`.lib` files you download a multi-gigabyte `clang+llvm-*.tar.xz`, decom
 throw away 95% of it. `llvm-slice` exists to make that unnecessary for **any** project, on **any** platform
 LLVM ships — by turning the official releases into artifacts you can fetch *piece by piece*.
 
-> 🙌 **This is community infrastructure, not a fork.** We do **not** build, patch, or reconfigure LLVM. We
-> repackage the binaries LLVM already publishes so they're cheaper to consume. All credit for the toolchain
-> belongs to the [LLVM project](https://llvm.org).
+> 🙌 **This is community infrastructure, not a fork.** For the platforms LLVM publishes, we do **not** build,
+> patch, or reconfigure LLVM -- we repackage the binaries LLVM already ships so they're cheaper to consume.
+> All credit for the toolchain belongs to the [LLVM project](https://llvm.org).
+>
+> The one exception is the **libc++ Linux slice** (`*-linux-libcxx`): upstream ships no libc++ Linux build,
+> so consumers that link the archives with a libc++ toolchain have nothing to repackage. That single variant
+> is built from unmodified upstream LLVM sources (`build-libcxx.yml`); it is a stock LLVM configured with
+> `-DLLVM_ENABLE_LIBCXX=ON`, not a patch or fork.
 
 ## Who this is for
 
@@ -140,7 +145,7 @@ Per LLVM release (tagged `v<llvm-version>` here), every platform gets:
 
 ## How releases are produced (and kept current)
 
-Everything runs in GitHub Actions — no LLVM is ever rebuilt:
+For upstream-published platforms, everything runs in GitHub Actions and no LLVM is ever rebuilt:
 
 - **`repackage.yml`** (manual `workflow_dispatch`): a `discover` job queries
   upstream and emits a dynamic build matrix; one `repackage` job per platform
@@ -153,8 +158,14 @@ Everything runs in GitHub Actions — no LLVM is ever rebuilt:
   — so the payload stays current automatically.
 - **`ci.yml`**: `jac check` + `jac test` on every push/PR.
 
-Because repackaging is **execution-free**, every platform is processed on a
-single `ubuntu-latest` runner.
+Because repackaging is **execution-free**, every upstream platform is processed
+on a single `ubuntu-latest` runner.
+
+- **`build-libcxx.yml`** (manual `workflow_dispatch`): the one build path. It
+  compiles stock upstream LLVM with `zig c++` pinned to `x86_64-linux-gnu.2.17`
+  (libc++ ABI + a glibc 2.17 floor, no container), then feeds the install tree
+  through the same `repackage.jac --work-dir` path so the `*-linux-libcxx` slice
+  comes out in the identical zip + manifest format. x86_64 first.
 
 The CLI tool itself is released independently of the LLVM payload, on a
 `tool-v<version>` tag (distinct from the `v<llvm-version>` payload tags):
