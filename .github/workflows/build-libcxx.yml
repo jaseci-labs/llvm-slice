@@ -32,9 +32,12 @@ on:
         type: string
         default: "22.1.8"
       targets:
+        # Match the official/stock slice's full backend set so the libc++ slice is
+        # a drop-in replacement: consumers (jaclang) InitializeAllTargets and emit
+        # for e.g. wasm32, so a trimmed X86;AArch64 build breaks non-host codegen.
         description: "LLVM_TARGETS_TO_BUILD (semicolon-separated)"
         type: string
-        default: "X86;AArch64"
+        default: "AArch64;AMDGPU;ARM;AVR;BPF;Hexagon;Lanai;LoongArch;Mips;MSP430;NVPTX;PowerPC;RISCV;Sparc;SPIRV;SystemZ;VE;WebAssembly;X86;XCore"
       dry_run:
         description: "Build the slice but do not publish a release"
         type: boolean
