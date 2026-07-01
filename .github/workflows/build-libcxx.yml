@@ -9,20 +9,21 @@ name: Build libc++ LLVM slice
 # has to be produced here.
 #
 # The compiler is `zig cc`/`zig c++` pinned to an explicit glibc floor
-# (x86_64-linux-gnu.2.17). That single choice gives three properties at once:
+# (<arch>-linux-gnu.2.17). That single choice gives three properties at once:
 #   - libc++ ABI    -- zig c++ uses libc++, so the archives are std::__1::*.
 #   - low glibc floor -- the archives' libc references resolve at 2.17 when a
 #                        consumer links them, matching CPython's manylinux2014 floor.
 #   - no arc4random  -- configure probes against the 2.17 headers, so the 2.36+
 #                        arc4random symbol is never detected and never referenced.
-# No container and no special runner: a plain ubuntu-latest runner with Zig.
+# No container and no special runner: a plain GitHub-hosted runner with Zig.
 #
 # Downstream is unchanged: the built install tree flows through the existing
 # `scripts/repackage.jac --work-dir` path (classify CMake -> measure libs -> emit
 # dev zip + manifest -> index.json), exactly like an official tarball.
 #
-# Scope: x86_64 first (a native build -- same arch, only the glibc floor and C++
-# runtime differ). aarch64 is a cross build and is left for a follow-up.
+# Both Linux arches build NATIVELY: x86_64 on ubuntu-latest, aarch64 on the
+# GitHub-hosted ubuntu-24.04-arm runner (no cross build -- only the glibc floor
+# and C++ runtime differ from the host). Select arches via the `arch` input.
 
 on:
   workflow_dispatch:
@@ -31,6 +32,11 @@ on:
         description: "LLVM version to build (matches the upstream llvmorg-<version> tag)"
         type: string
         default: "22.1.8"
+      arch:
+        description: "Which Linux slice(s) to build"
+        type: choice
+        options: [x86_64, aarch64, both]
+        default: "both"
       targets:
         description: "LLVM_TARGETS_TO_BUILD (semicolon-separated)"
         type: string
@@ -54,21 +60,28 @@ permissions:
 env:
   JACLANG_VERSION: "0.16.7"
   ZIG_VERSION: "0.16.0"
-  # The slice triple for the libc++ build. Distinct from the official
-  # `x86_64-linux` slice so both can coexist on the same v<version> release.
-  SLICE_TRIPLE: "x86_64-linux-libcxx"
-  # Glibc floor baked into the archives' libc references (matches CPython/PBS).
-  ZIG_TARGET: "x86_64-linux-gnu.2.17"
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    outputs:
-      record: ${{ steps.pack.outputs.record }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ${{ fromJSON('{"x86_64":["x86_64"],"aarch64":["aarch64"],"both":["x86_64","aarch64"]}')[inputs.arch] }}
+    # Native build per arch: same-arch runner, only the glibc floor and C++
+    # runtime differ from the host toolchain.
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
+    env:
+      # The slice triple for the libc++ build. Distinct from the official
+      # `<arch>-linux` slices so both can coexist on the same v<version> release.
+      SLICE_TRIPLE: "${{ matrix.arch }}-linux-libcxx"
+      # Glibc floor baked into the archives' libc references (matches CPython/PBS
+      # manylinux2014, both arches).
+      ZIG_TARGET: "${{ matrix.arch }}-linux-gnu.2.17"
     steps:
       - name: Free disk space
         # A full LLVM build + install is many GB; reclaim the image's bulky
-        # preinstalled toolchains and build on /mnt (~67 GB) like repackage.yml.
+        # preinstalled toolchains (paths that don't exist on a given runner
+        # image, e.g. arm, are skipped by the || true).
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
             /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
@@ -85,13 +98,24 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
 
-      - name: Stage build dirs on /mnt
+      - name: Stage build dirs
+        # Prefer the Azure temp disk (/mnt, ~67 GB on the x86_64 runners) when it
+        # has room; the arm runners' disk layout differs, so fall back to the
+        # runner's own filesystem (RUNNER_TEMP) when /mnt is absent or small.
+        # Everything downstream uses $WORK. /mnt is root-owned; chown after mkdir.
         run: |
           set -euo pipefail
-          for d in src build install out; do
-            sudo mkdir -p "/mnt/llvm-$d"
-            sudo chown "$(id -u):$(id -g)" "/mnt/llvm-$d"
+          if [ -d /mnt ] && [ "$(df -Pm /mnt | awk 'NR==2{print $4}')" -ge 40960 ]; then
+            BASE=/mnt
+          else
+            BASE="$RUNNER_TEMP"
+          fi
+          echo "WORK=$BASE" >> "$GITHUB_ENV"
+          for d in llvm-src llvm-build llvm-install llvm-out zig-wrap; do
+            sudo mkdir -p "$BASE/$d"
+            sudo chown "$(id -u):$(id -g)" "$BASE/$d"
           done
+          df -h "$BASE"
 
       - name: Fetch LLVM source
         run: |
@@ -99,10 +123,10 @@ jobs:
           V="${{ inputs.version }}"
           URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${V}/llvm-project-${V}.src.tar.xz"
           echo "downloading $URL"
-          curl -fsSL -o /mnt/llvm-src/llvm-project.tar.xz "$URL"
-          tar -xf /mnt/llvm-src/llvm-project.tar.xz -C /mnt/llvm-src --strip-components=1
-          rm -f /mnt/llvm-src/llvm-project.tar.xz
-          test -d /mnt/llvm-src/llvm
+          curl -fsSL -o "$WORK/llvm-src/llvm-project.tar.xz" "$URL"
+          tar -xf "$WORK/llvm-src/llvm-project.tar.xz" -C "$WORK/llvm-src" --strip-components=1
+          rm -f "$WORK/llvm-src/llvm-project.tar.xz"
+          test -d "$WORK/llvm-src/llvm"
 
       - name: Zig compiler wrappers (libc++ + glibc 2.17 floor)
         # cmake needs a single-token compiler path; wrap the multi-word `zig cc`
@@ -110,18 +134,15 @@ jobs:
         # runtime (libc++) and the glibc floor for every translation unit.
         run: |
           set -euo pipefail
-          # /mnt is root-owned on GH runners; create + chown like the stage step.
-          sudo mkdir -p /mnt/zig-wrap
-          sudo chown "$(id -u):$(id -g)" /mnt/zig-wrap
-          cat > /mnt/zig-wrap/zcc <<EOF
+          cat > "$WORK/zig-wrap/zcc" <<EOF
           #!/bin/sh
           exec zig cc -target ${ZIG_TARGET} "\$@"
           EOF
-          cat > /mnt/zig-wrap/zcxx <<EOF
+          cat > "$WORK/zig-wrap/zcxx" <<EOF
           #!/bin/sh
           exec zig c++ -target ${ZIG_TARGET} "\$@"
           EOF
-          chmod +x /mnt/zig-wrap/zcc /mnt/zig-wrap/zcxx
+          chmod +x "$WORK/zig-wrap/zcc" "$WORK/zig-wrap/zcxx"
 
       - name: Configure (CMake + Ninja, static libc++ dev surface)
         # Static archives only, no shared libLLVM, no tools/tests/examples, and
@@ -131,12 +152,12 @@ jobs:
         run: |
           set -euo pipefail
           cmake -G Ninja \
-            -S /mnt/llvm-src/llvm \
-            -B /mnt/llvm-build \
+            -S "$WORK/llvm-src/llvm" \
+            -B "$WORK/llvm-build" \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=/mnt/zig-wrap/zcc \
-            -DCMAKE_CXX_COMPILER=/mnt/zig-wrap/zcxx \
-            -DCMAKE_INSTALL_PREFIX=/mnt/llvm-install \
+            -DCMAKE_C_COMPILER="$WORK/zig-wrap/zcc" \
+            -DCMAKE_CXX_COMPILER="$WORK/zig-wrap/zcxx" \
+            -DCMAKE_INSTALL_PREFIX="$WORK/llvm-install" \
             -DLLVM_ENABLE_LIBCXX=ON \
             -DLLVM_TARGETS_TO_BUILD="${{ inputs.targets }}" \
             -DLLVM_ENABLE_PROJECTS="" \
@@ -162,8 +183,8 @@ jobs:
       - name: Build + install
         run: |
           set -euo pipefail
-          ninja -C /mnt/llvm-build install
-          df -h /mnt /
+          ninja -C "$WORK/llvm-build" install
+          df -h "$WORK" /
 
       - name: Prune install to the dev surface
         # build_dev_zip walks the whole tree; the official slice ships only
@@ -171,10 +192,10 @@ jobs:
         # ...) to keep the slice lean.
         run: |
           set -euo pipefail
-          find /mnt/llvm-install/bin -mindepth 1 -maxdepth 1 \
+          find "$WORK/llvm-install/bin" -mindepth 1 -maxdepth 1 \
             ! -name 'llvm-config' -exec rm -rf {} + || true
-          test -f /mnt/llvm-install/lib/cmake/llvm/LLVMConfig.cmake
-          test -f /mnt/llvm-install/lib/cmake/llvm/LLVMExports.cmake
+          test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMConfig.cmake"
+          test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMExports.cmake"
 
       - name: Repackage built tree into a dev slice
         id: pack
@@ -183,19 +204,18 @@ jobs:
           jac run scripts/repackage.jac \
             --version "${{ inputs.version }}" \
             --triple "${SLICE_TRIPLE}" \
-            --work-dir /mnt/llvm-install \
-            --out-dir /mnt/llvm-out > /mnt/llvm-out/record-${SLICE_TRIPLE}.json
+            --work-dir "$WORK/llvm-install" \
+            --out-dir "$WORK/llvm-out" > "$WORK/llvm-out/record-${SLICE_TRIPLE}.json"
           echo "--- record ---"
-          cat /mnt/llvm-out/record-${SLICE_TRIPLE}.json
-          echo "record=$(cat /mnt/llvm-out/record-${SLICE_TRIPLE}.json)" >> "$GITHUB_OUTPUT"
+          cat "$WORK/llvm-out/record-${SLICE_TRIPLE}.json"
 
       - uses: actions/upload-artifact@v4
         with:
           name: slice-${{ env.SLICE_TRIPLE }}
           path: |
-            /mnt/llvm-out/*-dev.zip
-            /mnt/llvm-out/*-manifest.json
-            /mnt/llvm-out/record-*.json
+            ${{ env.WORK }}/llvm-out/*-dev.zip
+            ${{ env.WORK }}/llvm-out/*-manifest.json
+            ${{ env.WORK }}/llvm-out/record-*.json
           if-no-files-found: error
           retention-days: 7
 
