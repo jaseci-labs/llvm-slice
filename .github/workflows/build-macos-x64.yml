@@ -70,7 +70,12 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install "jaclang==${JACLANG_VERSION}"
+      # --no-deps: jaclang's only dependency is llvmlite (the native backend),
+      # which ships no Intel-mac wheel and fails a from-source pip build on
+      # this runner. repackage.jac never touches the native backend -- it is
+      # stdlib-only (zipfile/hashlib/json) -- and jaclang imports llvmlite
+      # lazily, so the interpreter path runs fine without it.
+      - run: pip install --no-deps "jaclang==${JACLANG_VERSION}"
 
       - name: Install ninja
         run: brew install ninja
