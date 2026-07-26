@@ -1,0 +1,217 @@
+name: Build macOS x86_64 LLVM slice
+
+# Build LLVM from source on the Intel macOS runner and publish it as a
+# range-fetchable dev slice, in the SAME zip+manifest format the repackage path
+# produces for official tarballs. Upstream stopped shipping macOS Intel release
+# binaries (22.x ships only LLVM-<version>-macOS-ARM64), so -- like the Linux
+# libc++ slices (build-libcxx.yml) -- the x86_64-apple-darwin slice has to be
+# produced here. It is a stock LLVM built with the runner's Apple clang; libc++
+# is the platform default, so no compiler wrapper is needed.
+#
+# Two deliberate differences from the official macOS-ARM64 repackage:
+#   - plain native Mach-O archives (upstream's are ThinLTO bitcode), so a
+#     consumer's ld64 needs no matching libLTO.dylib to link them;
+#   - every optional external (zlib/zstd/libxml2/...) OFF, so statically
+#     linking the archives pulls in no Homebrew libraries.
+#
+# MACOSX_DEPLOYMENT_TARGET pins the archives' minos: the runner is macOS 15,
+# and without the pin consumers could only ship binaries requiring macOS 15+,
+# excluding most Intel Macs. 12.0 (Monterey) covers 2015-and-newer models.
+#
+# The Intel runner image retires in Fall 2027 (GitHub is closing down macOS
+# x86_64); after that this workflow needs a cross build or a self-hosted host.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "LLVM version to build (matches the upstream llvmorg-<version> tag)"
+        type: string
+        default: "22.1.8"
+      targets:
+        description: "LLVM_TARGETS_TO_BUILD (semicolon-separated)"
+        type: string
+        default: "X86;AArch64"
+      deployment_target:
+        description: "MACOSX_DEPLOYMENT_TARGET baked into the archives"
+        type: string
+        default: "12.0"
+      dry_run:
+        description: "Build the slice but do not publish a release"
+        type: boolean
+        default: true
+      draft_release:
+        description: "Publish the release as a draft"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-macos-x64-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  JACLANG_VERSION: "0.16.7"
+
+jobs:
+  build:
+    # The last GitHub-hosted Intel macOS image (native x86_64, no emulation).
+    runs-on: macos-15-intel
+    env:
+      # Mirrors upstream's naming for the ARM sibling (aarch64-apple-darwin).
+      SLICE_TRIPLE: "x86_64-apple-darwin"
+      # Apple clang honors this for every TU; cmake also gets it explicitly.
+      MACOSX_DEPLOYMENT_TARGET: ${{ inputs.deployment_target }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+
+      - name: Install ninja
+        run: brew install ninja
+
+      - name: Stage build dirs
+        # macOS runners have no /mnt temp disk; RUNNER_TEMP sits on the large
+        # runner volume, which is plenty for a tools-off static build.
+        run: |
+          set -euo pipefail
+          echo "WORK=$RUNNER_TEMP" >> "$GITHUB_ENV"
+          for d in llvm-src llvm-build llvm-install llvm-out; do
+            mkdir -p "$RUNNER_TEMP/$d"
+          done
+          df -h "$RUNNER_TEMP"
+
+      - name: Fetch LLVM source
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${V}/llvm-project-${V}.src.tar.xz"
+          echo "downloading $URL"
+          curl -fsSL -o "$WORK/llvm-src/llvm-project.tar.xz" "$URL"
+          tar -xf "$WORK/llvm-src/llvm-project.tar.xz" -C "$WORK/llvm-src" --strip-components=1
+          rm -f "$WORK/llvm-src/llvm-project.tar.xz"
+          test -d "$WORK/llvm-src/llvm"
+
+      - name: Configure (CMake + Ninja, static dev surface)
+        # Same shape as build-libcxx.yml: static archives only, no shared
+        # libLLVM, no tools/tests/examples, and every optional host-probing
+        # external OFF -- the consuming shim links the archives statically and
+        # must not inherit Homebrew .dylib deps. No LLVM_ENABLE_LIBCXX and no
+        # compiler wrapper: Apple clang/libc++ is the macOS default toolchain,
+        # the same one that built upstream's ARM slice.
+        run: |
+          set -euo pipefail
+          cmake -G Ninja \
+            -S "$WORK/llvm-src/llvm" \
+            -B "$WORK/llvm-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$WORK/llvm-install" \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="${{ inputs.deployment_target }}" \
+            -DLLVM_TARGETS_TO_BUILD="${{ inputs.targets }}" \
+            -DLLVM_ENABLE_PROJECTS="" \
+            -DLLVM_ENABLE_RUNTIMES="" \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_LINK_LLVM_DYLIB=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_BUILD_TOOLS=OFF \
+            -DLLVM_INCLUDE_TOOLS=OFF \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBEDIT=OFF \
+            -DLLVM_ENABLE_LIBPFM=OFF \
+            -DLLVM_ENABLE_CURL=OFF \
+            -DLLVM_ENABLE_HTTPLIB=OFF
+
+      - name: Build + install
+        run: |
+          set -euo pipefail
+          ninja -C "$WORK/llvm-build" install
+          df -h "$WORK" /
+
+      - name: Prune install to the dev surface
+        # build_dev_zip walks the whole tree; the official slice ships only
+        # lib/ + include/ + bin/llvm-config, so drop the rest of bin/ (llc, opt,
+        # ...) to keep the slice lean.
+        run: |
+          set -euo pipefail
+          find "$WORK/llvm-install/bin" -mindepth 1 -maxdepth 1 \
+            ! -name 'llvm-config' -exec rm -rf {} + || true
+          test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMConfig.cmake"
+          test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMExports.cmake"
+
+      - name: Verify arch + deployment target
+        # Every archive member must be x86_64 with minos <= the requested
+        # floor; a stray host-default object would silently raise the floor.
+        run: |
+          set -euo pipefail
+          LIB="$WORK/llvm-install/lib/libLLVMCore.a"
+          lipo -info "$LIB" | grep -q x86_64
+          MINOS="$(otool -l "$LIB" | awk '/minos/ {print $2; exit}')"
+          echo "libLLVMCore.a minos=$MINOS (requested ${{ inputs.deployment_target }})"
+          [ "$(printf '%s\n%s\n' "$MINOS" "${{ inputs.deployment_target }}" | sort -V | tail -1)" = "${{ inputs.deployment_target }}" ]
+
+      - name: Repackage built tree into a dev slice
+        id: pack
+        run: |
+          set -euo pipefail
+          jac run scripts/repackage.jac \
+            --version "${{ inputs.version }}" \
+            --triple "${SLICE_TRIPLE}" \
+            --work-dir "$WORK/llvm-install" \
+            --out-dir "$WORK/llvm-out" > "$WORK/llvm-out/record-${SLICE_TRIPLE}.json"
+          echo "--- record ---"
+          cat "$WORK/llvm-out/record-${SLICE_TRIPLE}.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ env.SLICE_TRIPLE }}
+          path: |
+            ${{ env.WORK }}/llvm-out/*-dev.zip
+            ${{ env.WORK }}/llvm-out/*-manifest.json
+            ${{ env.WORK }}/llvm-out/record-*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: build
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Download slice artifact
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Upload macOS x86_64 slice to release v${{ env.VERSION }}
+        # Coexists with the official repackaged slices on the same v<version>
+        # release; the x86_64-apple-darwin triple keeps the asset names
+        # distinct. --clobber makes re-runs idempotent. Reuses (does not
+        # replace) index.json from the repackage workflow -- this slice is
+        # consumed by triple directly.
+        run: |
+          set -euo pipefail
+          DRAFT=()
+          if [ "${{ inputs.draft_release }}" = "true" ]; then DRAFT+=(--draft); fi
+          if ! gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "LLVM $VERSION (repackaged dev slices)" \
+              --notes "Range-fetchable dev zips + dependency manifests for LLVM $VERSION." \
+              "${DRAFT[@]}"
+          fi
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
+            dist/*/*-dev.zip dist/*/*-manifest.json
+          echo "Published macOS x86_64 slice for v$VERSION"
