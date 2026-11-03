@@ -166,6 +166,13 @@ on a single `ubuntu-latest` runner.
   (libc++ ABI + a glibc 2.17 floor, no container), then feeds the install tree
   through the same `repackage.jac --work-dir` path so the `*-linux-libcxx` slice
   comes out in the identical zip + manifest format. x86_64 first.
+- **`build-windows-x64.yml`** (manual `workflow_dispatch`): builds LLVM + LLD
+  from source with Visual Studio's clang-cl against the static MSVC runtime
+  (`/MT`), every optional external (libxml2, zlib, zstd, the DIA SDK, rpmalloc)
+  OFF, then repackages the install tree on `ubuntu-latest` into the
+  `x86_64-pc-windows-msvc-lld` slice. The repackaged official Windows archives
+  reference libxml2 (through lldCOFF's manifest merger) without shipping it, so
+  they cannot be linked statically on their own.
 
 The CLI tool itself is released independently of the LLVM payload, on a
 `tool-v<version>` tag (distinct from the `v<llvm-version>` payload tags):
