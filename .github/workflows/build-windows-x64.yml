@@ -1,0 +1,273 @@
+name: Build Windows x86_64 LLVM slice
+
+# Build LLVM (with LLD) from source on a Windows runner and publish it as a
+# range-fetchable dev slice, in the SAME zip+manifest format the repackage path
+# produces for official tarballs.
+#
+# Upstream does ship clang+llvm-<version>-x86_64-pc-windows-msvc, and
+# repackage.yml turns it into the x86_64-pc-windows-msvc slice. But that build
+# links libxml2 into LLVMWindowsManifest (which lldCOFF uses) without shipping
+# libxml2 itself, and LLVMSupport carries rpmalloc and LLVMDebugInfoPDB the DIA
+# SDK. A consumer that links lldCOFF statically therefore cannot resolve
+# xmlReadMemory & co. Like the macOS x86_64 and Linux libc++ slices, this one
+# turns every optional external OFF, so the archives link against nothing but
+# the MSVC runtime and the Windows SDK.
+#
+# Toolchain: the clang-cl bundled with Visual Studio (as upstream's release uses
+# clang-cl) against the MSVC STL and the static runtime (/MT,
+# CMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded), the same ABI as the official
+# archives. Consumers link the archives with MSVC's link or lld-link.
+#
+# The install tree is repackaged on ubuntu-latest (repackaging is execution-free,
+# exactly as repackage.yml handles the official Windows tarball).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "LLVM version to build (matches the upstream llvmorg-<version> tag)"
+        type: string
+        default: "22.1.8"
+      targets:
+        description: "LLVM_TARGETS_TO_BUILD (semicolon-separated)"
+        type: string
+        default: "X86;AArch64"
+      lld:
+        description: "Also build LLD's libraries (lld/ projects) into the slice; names the slice triple with a -lld suffix"
+        type: boolean
+        default: true
+      dry_run:
+        description: "Build the slice but do not publish a release"
+        type: boolean
+        default: true
+      draft_release:
+        description: "Publish the release as a draft"
+        type: boolean
+        default: false
+
+concurrency:
+  group: build-windows-x64-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  JACLANG_VERSION: "0.16.7"
+  SLICE_TRIPLE: "x86_64-pc-windows-msvc${{ inputs.lld && '-lld' || '' }}"
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      # Short paths on the large C: volume (D: is the small temp disk).
+      WORK: "C:/w"
+      # Keep Git Bash from rewriting Windows-style arguments.
+      MSYS_NO_PATHCONV: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up MSVC (x64)
+        uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+
+      - name: Stage build dirs and tools
+        # clang-cl, lld-link and llvm-lib come from Visual Studio's bundled LLVM,
+        # by absolute path: in Git Bash a bare `link` is coreutils' link.
+        run: |
+          set -euo pipefail
+          for d in llvm-src llvm-build llvm-install; do mkdir -p "$WORK/$d"; done
+          df -h /c
+          VSLLVM="$(cygpath -m "$VCINSTALLDIR")/Tools/Llvm/x64/bin"
+          for t in clang-cl lld-link llvm-lib; do test -x "$VSLLVM/$t.exe"; done
+          "$VSLLVM/clang-cl.exe" --version
+          echo "VSLLVM=$VSLLVM" >> "$GITHUB_ENV"
+          pip install ninja
+          ninja --version
+
+      - name: Fetch LLVM source
+        # Only the trees the build reads (llvm, lld, cmake, third-party, and
+        # libunwind's headers, which lld's Mach-O port includes); tests and docs
+        # are skipped, which also avoids the symlinks elsewhere in the tarball.
+        run: |
+          set -euo pipefail
+          V="${{ inputs.version }}"
+          URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${V}/llvm-project-${V}.src.tar.xz"
+          echo "downloading $URL"
+          curl -fsSL -o "$WORK/llvm-project.tar.xz" "$URL"
+          P="llvm-project-${V}.src"
+          7z x -so "$WORK/llvm-project.tar.xz" | tar -xf - -C "$WORK/llvm-src" --strip-components=1 \
+            --exclude="$P/*/test" --exclude="$P/*/unittests" --exclude="$P/*/docs" \
+            "$P/llvm" "$P/lld" "$P/cmake" "$P/third-party" "$P/libunwind/include"
+          rm -f "$WORK/llvm-project.tar.xz"
+          test -f "$WORK/llvm-src/llvm/CMakeLists.txt"
+          test -f "$WORK/llvm-src/lld/CMakeLists.txt"
+
+      - name: Configure (CMake + Ninja, static dev surface)
+        # Same shape as build-macos-x64.yml: static archives only, no tools,
+        # tests or examples, and every optional external OFF -- including the
+        # Windows-only ones upstream turns on: the DIA SDK (LLVMDebugInfoPDB)
+        # and rpmalloc (LLVMSupport replacing the CRT allocator).
+        run: |
+          set -euo pipefail
+          cmake -G Ninja \
+            -S "$WORK/llvm-src/llvm" \
+            -B "$WORK/llvm-build" \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$WORK/llvm-install" \
+            -DCMAKE_C_COMPILER="$VSLLVM/clang-cl.exe" \
+            -DCMAKE_CXX_COMPILER="$VSLLVM/clang-cl.exe" \
+            -DCMAKE_LINKER="$VSLLVM/lld-link.exe" \
+            -DCMAKE_AR="$VSLLVM/llvm-lib.exe" \
+            -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded \
+            -DLLVM_TARGETS_TO_BUILD="${{ inputs.targets }}" \
+            -DLLVM_ENABLE_PROJECTS="${{ inputs.lld && 'lld' || '' }}" \
+            -DLLVM_ENABLE_RUNTIMES="" \
+            -DLLVM_BUILD_LLVM_DYLIB=OFF \
+            -DLLVM_LINK_LLVM_DYLIB=OFF \
+            -DLLVM_BUILD_LLVM_C_DYLIB=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DLLVM_INCLUDE_TESTS=OFF \
+            -DLLVM_INCLUDE_BENCHMARKS=OFF \
+            -DLLVM_INCLUDE_EXAMPLES=OFF \
+            -DLLVM_INCLUDE_DOCS=OFF \
+            -DLLVM_BUILD_TOOLS=OFF \
+            -DLLVM_INCLUDE_TOOLS=${{ inputs.lld && 'ON' || 'OFF' }} \
+            -DLLVM_ENABLE_BINDINGS=OFF \
+            -DLLVM_ENABLE_ZLIB=OFF \
+            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_LIBXML2=OFF \
+            -DLLVM_ENABLE_DIA_SDK=OFF \
+            -DLLVM_ENABLE_RPMALLOC=OFF \
+            -DLLVM_ENABLE_TERMINFO=OFF \
+            -DLLVM_ENABLE_LIBEDIT=OFF \
+            -DLLVM_ENABLE_LIBPFM=OFF \
+            -DLLVM_ENABLE_CURL=OFF \
+            -DLLVM_ENABLE_HTTPLIB=OFF
+
+      - name: Build + install
+        run: |
+          set -euo pipefail
+          ninja -C "$WORK/llvm-build" install
+          df -h /c
+
+      - name: Prune install to the dev surface
+        # The official slices ship only lib/ + include/ + bin/llvm-config.
+        run: |
+          set -euo pipefail
+          find "$WORK/llvm-install/bin" -mindepth 1 -maxdepth 1 \
+            ! -name 'llvm-config.exe' -exec rm -rf {} + || true
+          test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMConfig.cmake"
+          test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMExports.cmake"
+          test -f "$WORK/llvm-install/lib/LLVMCore.lib"
+          if [ "${{ inputs.lld }}" = "true" ]; then
+            for lib in lldCommon lldELF lldMachO lldCOFF lldWasm; do
+              test -f "$WORK/llvm-install/lib/$lib.lib"
+            done
+            test -f "$WORK/llvm-install/include/lld/Common/Driver.h"
+          fi
+
+      - name: Verify the archives' runtime and externals
+        # /MT objects name libcmt (the static CRT), never msvcrt; and with the
+        # externals off nothing references libxml2 or the DIA SDK.
+        run: |
+          set -euo pipefail
+          LIB="$WORK/llvm-install/lib"
+          fail() { echo "::error::$1"; exit 1; }
+          grep -aq 'DEFAULTLIB:libcmt' "$LIB/LLVMSupport.lib" || fail "LLVMSupport.lib is not /MT"
+          if grep -aq 'DEFAULTLIB:msvcrt' "$LIB/LLVMSupport.lib"; then fail "LLVMSupport.lib names msvcrt"; fi
+          if grep -aq 'xmlReadMemory' "$LIB/LLVMWindowsManifest.lib"; then fail "LLVMWindowsManifest.lib needs libxml2"; fi
+          if grep -aiq 'diaguids' "$LIB/LLVMDebugInfoPDB.lib"; then fail "LLVMDebugInfoPDB.lib needs the DIA SDK"; fi
+          if grep -aq 'rpmalloc' "$LIB/LLVMSupport.lib"; then fail "LLVMSupport.lib carries rpmalloc"; fi
+          echo "archives: /MT; no libxml2, DIA SDK or rpmalloc"
+
+      - name: Archive the install tree
+        run: |
+          set -euo pipefail
+          tar -cf "$WORK/llvm-install.tar" -C "$WORK/llvm-install" .
+          ls -l "$WORK/llvm-install.tar"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: install-${{ env.SLICE_TRIPLE }}
+          path: C:/w/llvm-install.tar
+          if-no-files-found: error
+          retention-days: 7
+
+  pack:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # --no-deps: repackage.jac is stdlib-only (see build-macos-x64.yml).
+      - run: pip install --no-deps "jaclang==${JACLANG_VERSION}"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: install-${{ env.SLICE_TRIPLE }}
+          path: ${{ runner.temp }}
+
+      - name: Repackage built tree into a dev slice
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/llvm-install" "$RUNNER_TEMP/llvm-out"
+          tar -xf "$RUNNER_TEMP/llvm-install.tar" -C "$RUNNER_TEMP/llvm-install"
+          jac run scripts/repackage.jac \
+            --version "${{ inputs.version }}" \
+            --triple "${SLICE_TRIPLE}" \
+            --work-dir "$RUNNER_TEMP/llvm-install" \
+            --out-dir "$RUNNER_TEMP/llvm-out" > "$RUNNER_TEMP/llvm-out/record-${SLICE_TRIPLE}.json"
+          echo "--- record ---"
+          cat "$RUNNER_TEMP/llvm-out/record-${SLICE_TRIPLE}.json"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: slice-${{ env.SLICE_TRIPLE }}
+          path: |
+            ${{ runner.temp }}/llvm-out/*-dev.zip
+            ${{ runner.temp }}/llvm-out/*-manifest.json
+            ${{ runner.temp }}/llvm-out/record-*.json
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: pack
+    if: ${{ !inputs.dry_run }}
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Download slice artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: slice-${{ env.SLICE_TRIPLE }}
+          path: dist
+      - name: Upload Windows x86_64 slice to release v${{ env.VERSION }}
+        # Coexists with the official repackaged slices on the same v<version>
+        # release; the -lld triple keeps the asset names distinct from the
+        # repackaged x86_64-pc-windows-msvc ones. --clobber makes re-runs
+        # idempotent. index.json stays the repackage workflow's.
+        run: |
+          set -euo pipefail
+          DRAFT=()
+          if [ "${{ inputs.draft_release }}" = "true" ]; then DRAFT+=(--draft); fi
+          if ! gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "v$VERSION" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "LLVM $VERSION (repackaged dev slices)" \
+              --notes "Range-fetchable dev zips + dependency manifests for LLVM $VERSION." \
+              "${DRAFT[@]}"
+          fi
+          gh release upload "v$VERSION" --repo "$GITHUB_REPOSITORY" --clobber \
+            dist/*-dev.zip dist/*-manifest.json
+          echo "Published Windows x86_64 slice for v$VERSION"
