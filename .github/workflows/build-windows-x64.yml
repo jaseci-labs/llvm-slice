@@ -92,19 +92,26 @@ jobs:
 
       - name: Fetch LLVM source
         # Only the trees the build reads (llvm, lld, cmake, third-party, and
-        # libunwind's headers, which lld's Mach-O port includes); tests and docs
-        # are skipped, which also avoids the symlinks elsewhere in the tarball.
+        # libunwind's headers, which lld's Mach-O port includes), without tests
+        # or docs. Git Bash's tar cannot create the tarball's symlinks (some
+        # dangle, e.g. llvm/utils/mlgo-utils), and the build reads none of
+        # them, so every symlink is excluded.
         run: |
           set -euo pipefail
           V="${{ inputs.version }}"
           URL="https://github.com/llvm/llvm-project/releases/download/llvmorg-${V}/llvm-project-${V}.src.tar.xz"
           echo "downloading $URL"
           curl -fsSL -o "$WORK/llvm-project.tar.xz" "$URL"
+          7z x -so "$WORK/llvm-project.tar.xz" > "$WORK/llvm-project.tar"
+          rm -f "$WORK/llvm-project.tar.xz"
+          tar -tvf "$WORK/llvm-project.tar" | awk '/^l/ {print $6}' > "$WORK/symlinks.txt"
+          echo "excluding $(wc -l < "$WORK/symlinks.txt") symlinks"
           P="llvm-project-${V}.src"
-          7z x -so "$WORK/llvm-project.tar.xz" | tar -xf - -C "$WORK/llvm-src" --strip-components=1 \
+          tar -xf "$WORK/llvm-project.tar" -C "$WORK/llvm-src" --strip-components=1 \
+            --exclude-from="$WORK/symlinks.txt" \
             --exclude="$P/*/test" --exclude="$P/*/unittests" --exclude="$P/*/docs" \
             "$P/llvm" "$P/lld" "$P/cmake" "$P/third-party" "$P/libunwind/include"
-          rm -f "$WORK/llvm-project.tar.xz"
+          rm -f "$WORK/llvm-project.tar"
           test -f "$WORK/llvm-src/llvm/CMakeLists.txt"
           test -f "$WORK/llvm-src/lld/CMakeLists.txt"
 
