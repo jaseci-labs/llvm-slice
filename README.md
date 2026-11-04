@@ -165,7 +165,11 @@ on a single `ubuntu-latest` runner.
   compiles stock upstream LLVM with `zig c++` pinned to `x86_64-linux-gnu.2.17`
   (libc++ ABI + a glibc 2.17 floor, no container), then feeds the install tree
   through the same `repackage.jac --work-dir` path so the `*-linux-libcxx` slice
-  comes out in the identical zip + manifest format. x86_64 first.
+  comes out in the identical zip + manifest format. Like the official archives,
+  the slice carries LLVM and Clang (static libraries, headers and resource
+  headers), plus LLD with the `lld` input, all without debug info: the build
+  passes `-g0`, since `zig cc` otherwise emits DWARF, and fails if any archive
+  carries it.
 
 The CLI tool itself is released independently of the LLVM payload, on a
 `tool-v<version>` tag (distinct from the `v<llvm-version>` payload tags):
