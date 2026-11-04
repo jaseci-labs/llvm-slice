@@ -17,6 +17,16 @@ name: Build libc++ LLVM slice
 #                        arc4random symbol is never detected and never referenced.
 # No container and no special runner: a plain GitHub-hosted runner with Zig.
 #
+# `zig cc` emits DWARF even in a Release configuration (CMake's Release flags
+# carry no -g, but Zig's default is to keep debug info), so the wrappers pass
+# -g0: the slice ships what the official release archives ship, optimized code
+# without debug info. A slice built without it is ~2x the size, and so is every
+# shared library a consumer links from it.
+#
+# The slice carries the same dev surface as the official release archives:
+# LLVM, Clang (its static libraries, headers and resource headers) and,
+# with the `lld` input, LLD.
+#
 # Downstream is unchanged: the built install tree flows through the existing
 # `scripts/repackage.jac --work-dir` path (classify CMake -> measure libs -> emit
 # dev zip + manifest -> index.json), exactly like an official tarball.
@@ -140,13 +150,20 @@ jobs:
           set -euo pipefail
           cat > "$WORK/zig-wrap/zcc" <<EOF
           #!/bin/sh
-          exec zig cc -target ${ZIG_TARGET} "\$@"
+          exec zig cc -target ${ZIG_TARGET} "\$@" -g0
           EOF
           cat > "$WORK/zig-wrap/zcxx" <<EOF
           #!/bin/sh
-          exec zig c++ -target ${ZIG_TARGET} "\$@"
+          exec zig c++ -target ${ZIG_TARGET} "\$@" -g0
           EOF
           chmod +x "$WORK/zig-wrap/zcc" "$WORK/zig-wrap/zcxx"
+          # Fail now, not after the build, if the wrappers still emit DWARF.
+          printf 'int f(int x) { return x * 3; }\n' > "$WORK/zig-wrap/probe.cpp"
+          "$WORK/zig-wrap/zcxx" -O3 -DNDEBUG -c "$WORK/zig-wrap/probe.cpp" -o "$WORK/zig-wrap/probe.o"
+          if readelf -S --wide "$WORK/zig-wrap/probe.o" | grep -q '\.debug_'; then
+            echo "::error::the compiler wrappers emit debug info"
+            exit 1
+          fi
 
       - name: Configure (CMake + Ninja, static libc++ dev surface)
         # Static archives only, no shared libLLVM, no tools/tests/examples, and
@@ -164,7 +181,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$WORK/llvm-install" \
             -DLLVM_ENABLE_LIBCXX=ON \
             -DLLVM_TARGETS_TO_BUILD="${{ inputs.targets }}" \
-            -DLLVM_ENABLE_PROJECTS="${{ inputs.lld && 'lld' || '' }}" \
+            -DLLVM_ENABLE_PROJECTS="clang${{ inputs.lld && ';lld' || '' }}" \
             -DLLVM_ENABLE_RUNTIMES="" \
             -DLLVM_BUILD_LLVM_DYLIB=OFF \
             -DLLVM_LINK_LLVM_DYLIB=OFF \
@@ -173,7 +190,11 @@ jobs:
             -DLLVM_INCLUDE_BENCHMARKS=OFF \
             -DLLVM_INCLUDE_EXAMPLES=OFF \
             -DLLVM_BUILD_TOOLS=OFF \
-            -DLLVM_INCLUDE_TOOLS=${{ inputs.lld && 'ON' || 'OFF' }} \
+            -DLLVM_INCLUDE_TOOLS=ON \
+            -DCLANG_BUILD_TOOLS=OFF \
+            -DCLANG_INCLUDE_TESTS=OFF \
+            -DCLANG_INCLUDE_DOCS=OFF \
+            -DCLANG_BUILD_EXAMPLES=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF \
             -DLLVM_ENABLE_ZLIB=OFF \
             -DLLVM_ENABLE_ZSTD=OFF \
@@ -198,14 +219,38 @@ jobs:
           set -euo pipefail
           find "$WORK/llvm-install/bin" -mindepth 1 -maxdepth 1 \
             ! -name 'llvm-config' -exec rm -rf {} + || true
+          # Static archives only: drop the shared libraries Clang's tools
+          # directory builds (libclang.so*).
+          find "$WORK/llvm-install/lib" -maxdepth 1 -name '*.so*' -exec rm -f {} +
           test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMConfig.cmake"
           test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMExports.cmake"
+          # Clang: the libraries a driver links, its headers, and the resource
+          # headers (stddef.h, the intrinsics) every compilation includes.
+          for lib in clangBasic clangLex clangParse clangSema clangAST clangAnalysis \
+                     clangEdit clangSerialization clangCodeGen clangDriver clangFrontend \
+                     clangFrontendTool clangRewrite clangAPINotes clangSupport; do
+            test -f "$WORK/llvm-install/lib/lib$lib.a"
+          done
+          test -f "$WORK/llvm-install/include/clang/Driver/Driver.h"
+          V="${{ inputs.version }}"
+          test -f "$WORK/llvm-install/lib/clang/${V%%.*}/include/stddef.h"
           if [ "${{ inputs.lld }}" = "true" ]; then
             for lib in lldCommon lldELF lldMachO lldCOFF lldWasm; do
               test -f "$WORK/llvm-install/lib/lib$lib.a"
             done
             test -f "$WORK/llvm-install/include/lld/Common/Driver.h"
           fi
+          # No archive member may carry DWARF (see the -g0 note at the top).
+          dbg=""
+          for a in "$WORK"/llvm-install/lib/*.a; do
+            n="$(readelf -S --wide "$a" 2>/dev/null | grep -c '\.debug_info' || true)"
+            if [ "$n" != "0" ]; then dbg="$dbg $(basename "$a")"; fi
+          done
+          if [ -n "$dbg" ]; then
+            echo "::error::archives carry debug info:$dbg"
+            exit 1
+          fi
+          du -sh "$WORK/llvm-install/lib"
 
       - name: Repackage built tree into a dev slice
         id: pack
