@@ -48,6 +48,12 @@ cmake_build() {
     cmake --install "$b" --config Release
 }
 
+# libxml2's sources, without its test data (whose symbolic links Windows' tar
+# cannot make, and which the library's build does not read).
+unpack_libxml2() {
+    unpack libxml2-v2.9.12.tar.gz "$WORK/libxml2" --exclude='*/test/*'
+}
+
 case "$platform" in
     macos-aarch64)
         llvm_toolchain
@@ -61,7 +67,7 @@ case "$platform" in
         unpack zstd-1.5.7.tar.gz "$WORK/zstd"
         cmake_build zstd "$WORK/zstd/build/cmake" -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON \
             -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_LEGACY_SUPPORT=OFF
-        unpack libxml2-v2.9.12.tar.gz "$WORK/libxml2"
+        unpack_libxml2
         # shellcheck disable=SC2086
         cmake_build libxml2 "$WORK/libxml2" $xml_options
         # Static libraries only: zlib's build also makes a shared one.
@@ -70,7 +76,7 @@ case "$platform" in
         ;;
     windows-x86_64)
         common="-DCMAKE_C_COMPILER=cl -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
-        unpack libxml2-v2.9.12.tar.gz "$WORK/libxml2"
+        unpack_libxml2
         # shellcheck disable=SC2086
         cmake_build libxml2 "$WORK/libxml2" $xml_options
         ls "$out/lib"
