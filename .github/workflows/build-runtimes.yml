@@ -1,0 +1,247 @@
+name: Build runtimes
+
+# The runtimes slice: what a Clang/LLD toolchain built from an LLVM release needs
+# to compile and link C and C++ for every target it supports without a sysroot,
+# as one range-fetchable zip (the dev slices' format) with a manifest pinning
+# every member. Consumed by neojac (`neojac cc`), which ships it as its lib/.
+#
+#   libc/include/      C library headers: musl's and Linux's (each project's
+#                      own install), glibc's (Zig's curated set: one set for
+#                      every glibc release), mingw-w64's, and the macOS SDK's
+#   libc/glibc/        the ABI lists of every glibc release from 2.17, merged
+#   libc/darwin/       libSystem's stub, from the macOS SDK
+#   libcxx/, libunwind/  LLVM's C++ runtime headers
+#   targets/<target>/  each target's libraries and start files: musl;
+#                      glibc's start files for each band of releases; mingw-w64's
+#                      CRT, winpthreads and import libraries; compiler-rt's
+#                      builtins and LLVM's libunwind, libc++abi and libc++;
+#                      wasi-libc (wasi-sdk's build)
+#   host/<platform>/   the static libraries LLVM's official macOS and Windows
+#                      archives reference but do not ship (zlib, zstd, libxml2)
+#
+# Every library is built from a pinned upstream release (runtimes/sources.txt)
+# by its own build system with the release's Clang: musl's configure, glibc's
+# configure (with the GCC of its time, in a distribution of its era: glibc
+# builds only with GCC), mingw-w64's configure, LLVM's CMake. runtimes/README.md
+# has the layout and how each piece is made.
+#
+# Pull requests that touch the build run it without publishing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Revision of the runtimes for this LLVM version (the release is runtimes-v<llvm>-<revision>)"
+        type: string
+        default: "1"
+      dry_run:
+        description: "Build and check the slice, but do not publish it"
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - "runtimes/**"
+      - "scripts/pack_runtimes.jac"
+      - ".github/workflows/build-runtimes.yml"
+
+concurrency:
+  group: build-runtimes-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  LLVM_VERSION: "22.1.8"
+  JACLANG_VERSION: "0.16.7"
+
+jobs:
+  linux:
+    # Linux's headers, musl, glibc's data, LLVM's runtimes for the four Linux
+    # targets, and mingw-w64 with its runtimes: all cross builds with Clang.
+    runs-on: ubuntu-24.04
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build rsync
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: runtimes-src-linux-${{ hashFiles('runtimes/sources.txt') }}
+      - name: Linux headers and musl
+        run: |
+          set -eu
+          sh runtimes/linux-headers.sh out/linux-headers
+          sh runtimes/musl.sh x86_64 out/musl-x86_64
+          sh runtimes/musl.sh aarch64 out/musl-aarch64
+      - name: glibc's ABI lists and headers
+        run: sh runtimes/glibc-data.sh out/glibc
+      - name: LLVM's runtimes for Linux
+        run: |
+          set -eu
+          o="$PWD/out"
+          for t in x86_64-linux-musl aarch64-linux-musl x86_64-linux-gnu aarch64-linux-gnu; do
+            arch="${t%%-*}"
+            case "$t" in
+              *-musl) inc="$o/musl-$arch/include $o/linux-headers/$arch/include" ;;
+              *) fam="$arch"; [ "$arch" = x86_64 ] && fam=x86
+                 inc="$o/glibc/include/$fam-linux-gnu $o/glibc/include/generic-glibc $o/linux-headers/$arch/include" ;;
+            esac
+            for phase in builtins cxx; do
+              LIBC_INCLUDES="$inc" sh runtimes/llvm-runtimes.sh "$t" "out/rt-$t" "$phase"
+            done
+          done
+      - name: mingw-w64
+        run: sh runtimes/mingw.sh out/mingw
+      - name: Pack
+        run: tar -czf linux.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-linux
+          path: linux.tar.gz
+          retention-days: 7
+
+  glibc:
+    # Each band's start files, by glibc's own build of the band's first release,
+    # natively on each architecture.
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        band:
+          - { version: "2.17", image: "centos:7" }
+          - { version: "2.33", image: "fedora:34" }
+          - { version: "2.34", image: "fedora:35" }
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: src
+          key: runtimes-src-glibc-${{ matrix.band.version }}-${{ hashFiles('runtimes/sources.txt') }}
+      - name: Build glibc ${{ matrix.band.version }}
+        run: |
+          docker run --rm -v "$PWD:/w" "docker.io/library/${{ matrix.band.image }}" sh -c \
+            "sh /w/runtimes/era-deps.sh && WORK=/work SRC_CACHE=/w/src sh /w/runtimes/glibc-crt.sh ${{ matrix.band.version }} /w/out/glibc-crt/${{ matrix.arch }}-${{ matrix.band.version }}"
+          sudo chown -R "$(id -u):$(id -g)" out src
+          tar -czf glibc.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-glibc-${{ matrix.arch }}-${{ matrix.band.version }}
+          path: glibc.tar.gz
+          retention-days: 7
+
+  darwin:
+    # The macOS SDK's headers and libSystem stub, LLVM's runtimes for both macOS
+    # architectures, and the static libraries LLVM's macOS archives reference.
+    runs-on: macos-26
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: brew install ninja
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: runtimes-src-darwin-${{ hashFiles('runtimes/sources.txt') }}
+      - name: macOS SDK data and runtimes
+        run: sh runtimes/darwin.sh out/darwin
+      - name: Static libraries for the macOS archives
+        run: sh runtimes/host-libs.sh macos-aarch64 out/host-macos-aarch64
+      # COPYFILE_DISABLE: no AppleDouble (._*) entries for the files' extended
+      # attributes, which the Linux job that unpacks this would write as files.
+      - name: Pack
+        run: COPYFILE_DISABLE=1 tar -czf darwin.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-darwin
+          path: darwin.tar.gz
+          retention-days: 7
+
+  windows:
+    # libxml2 for the official Windows archives, which reference it.
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      CMAKE_GENERATOR: NMake Makefiles
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
+        with:
+          arch: x64
+      - name: Static libxml2 for the Windows archives
+        run: |
+          set -eu
+          WORK="$RUNNER_TEMP/work" SRC_CACHE="$RUNNER_TEMP/src" sh runtimes/host-libs.sh windows-x86_64 out/host-windows-x86_64
+          tar -czf windows.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-windows
+          path: windows.tar.gz
+          retention-days: 7
+
+  pack:
+    needs: [linux, glibc, darwin, windows]
+    runs-on: ubuntu-24.04
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+      REVISION: ${{ inputs.revision || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: runtimes-src-pack-${{ hashFiles('runtimes/sources.txt') }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble and check
+        run: |
+          set -eu
+          mkdir -p in
+          for a in artifacts/*/*.tar.gz; do tar -xzf "$a" -C in; done
+          sh runtimes/assemble.sh in tree
+      - name: Pack the slice
+        id: pack
+        run: |
+          set -eu
+          rev="$REVISION"
+          [ "$rev" = 0 ] && rev=1
+          jac run scripts/pack_runtimes.jac --tree tree --version "$LLVM_VERSION" --revision "$rev" --out-dir dist | tee record.json
+          echo "revision=$rev" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-slice
+          path: |
+            dist/*
+            record.json
+          retention-days: 7
+      - name: Publish runtimes-v${{ env.LLVM_VERSION }}-${{ steps.pack.outputs.revision }}
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="runtimes-v$LLVM_VERSION-${{ steps.pack.outputs.revision }}"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::$tag exists; publish a new revision instead of replacing one consumers pin"
+            exit 1
+          fi
+          gh release create "$tag" \
+            --title "Runtimes for LLVM $LLVM_VERSION (revision ${{ steps.pack.outputs.revision }})" \
+            --notes "The runtimes slice for a Clang/LLD $LLVM_VERSION toolchain: C library headers, ABI data and every target's C and C++ runtime (runtimes/README.md). Pin llvm-$LLVM_VERSION-runtimes-manifest.json by its sha256 (record.json)." \
+            dist/* record.json

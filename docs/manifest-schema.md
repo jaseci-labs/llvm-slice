@@ -92,3 +92,27 @@ All manifests carry `"schema_version": 1`.
 Platforms that lacked a usable dev surface (no `lib/cmake/llvm`, or a shared-only
 `libLLVM` with no component `.a`/`.lib`) appear under `skipped` with a reason
 rather than failing the release.
+
+## The runtimes slice's manifest
+
+Release `runtimes-v<llvm>-<revision>` ships `llvm-<llvm>-runtimes-dev.zip` (the
+tree `runtimes/README.md` describes, plus an embedded `manifest.json`) and the
+standalone `llvm-<llvm>-runtimes-manifest.json`:
+
+```jsonc
+{
+  "schema_version": 1,
+  "kind": "runtimes",
+  "llvm_version": "22.1.8",
+  "revision": 1,
+  "zip_asset": "llvm-22.1.8-runtimes-dev.zip",
+  "zip_sha256": "…",                 // "" in the embedded copy
+  "files": {
+    "targets/x86_64-linux-musl/libc.a": { "size": 2512340, "sha256": "…" }
+    // … one entry for every member but manifest.json
+  }
+}
+```
+
+A revision is never replaced: a rebuild is the next revision, so a client that
+pins a manifest's sha256 keeps getting the bytes it pinned.

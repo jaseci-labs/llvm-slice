@@ -1,0 +1,71 @@
+# Every upstream input of the runtimes slice, pinned: <file> <sha256> <url>.
+# fetch() in lib.sh downloads a file once into $SRC_CACHE and checks it here.
+
+# The compiler every runtime is built with, and the sources of LLVM's own
+# runtimes (compiler-rt, libunwind, libc++abi, libc++).
+LLVM-22.1.8-Linux-X64.tar.xz df0e1ecf16caf3489a272a5eea4eec9b0d82878f6477fa309504f918a0006384 https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-X64.tar.xz
+LLVM-22.1.8-Linux-ARM64.tar.xz 805efad2bb91cb4967fa569e0881d10c0f69c04461cf671cccbae19f547acc34 https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-Linux-ARM64.tar.xz
+LLVM-22.1.8-macOS-ARM64.tar.xz f260f4f7c0d430828a81ae8a3826a1d63fc0963ec2459489308cc23b1f7eab4f https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/LLVM-22.1.8-macOS-ARM64.tar.xz
+llvm-project-22.1.8.src.tar.xz 922f1817a0df7b1489272d18134ee0087a8b068828f87ac63b9861b1a9965888 https://github.com/llvm/llvm-project/releases/download/llvmorg-22.1.8/llvm-project-22.1.8.src.tar.xz
+
+# Linux's user-space API headers.
+linux-7.0.tar.xz bb7f6d80b387c757b7d14bb93028fcb90f793c5c0d367736ee815a100b3891f0 https://cdn.kernel.org/pub/linux/kernel/v7.x/linux-7.0.tar.xz
+
+# musl, with the fixes its maintainers publish for the release.
+musl-1.2.6.tar.gz d585fd3b613c66151fc3249e8ed44f77020cb5e6c1e635a616d3f9f82460512a https://musl.libc.org/releases/musl-1.2.6.tar.gz
+musl-CVE-2026-40200.patch 1ee29f64f9ca8e8ad7c349779d661ff6b52126a27575d3586981357a52c406fb https://www.openwall.com/lists/musl/2026/04/10/3/1
+musl-CVE-2026-107891.patch 0cf0090ab433e8f9ed08ae03a0c93aff557c1d3e347260f62a61a10281f5333b https://www.openwall.com/lists/musl/2026/10/21/1/1
+
+# glibc, every release from 2.17 (the oldest neojac targets) to 2.44: the start
+# files of each band of releases whose start files differ (2.17 up to 2.32,
+# 2.33, 2.34 and later) are built from the band's first release, and every
+# release's ABI lists are merged. When they were pinned, 2.17 and 2.24 to 2.44
+# were checked against their release manager's signature, and 2.18 to 2.23
+# (signed with a key since revoked) were found identical on two mirrors.
+# ftpmirror.gnu.org is GNU's mirror network.
+glibc-2.17.tar.xz 6914e337401e0e0ade23694e1b2c52a5f09e4eda3270c67e7c3ba93a89b5b23e https://ftpmirror.gnu.org/glibc/glibc-2.17.tar.xz
+glibc-2.18.tar.xz 2cb4e1e381928f1e5e55e71ab1ba8e0ea7ede75ff9709770435bfd018ea257a3 https://ftpmirror.gnu.org/glibc/glibc-2.18.tar.xz
+glibc-2.19.tar.xz 2d3997f588401ea095a0b27227b1d50cdfdd416236f6567b564549d3b46ea2a2 https://ftpmirror.gnu.org/glibc/glibc-2.19.tar.xz
+glibc-2.20.tar.xz f84b6d42aecc288d593c397b0a3d02260a33ee686bce0c634eb9b32798f36ba5 https://ftpmirror.gnu.org/glibc/glibc-2.20.tar.xz
+glibc-2.21.tar.xz aeeb362437965a5d3f40b151094ca79def04a115bd363fdd4a9a0c69482923b8 https://ftpmirror.gnu.org/glibc/glibc-2.21.tar.xz
+glibc-2.22.tar.xz eb731406903befef1d8f878a46be75ef862b9056ab0cde1626d08a7a05328948 https://ftpmirror.gnu.org/glibc/glibc-2.22.tar.xz
+glibc-2.23.tar.xz 94efeb00e4603c8546209cefb3e1a50a5315c86fa9b078b6fad758e187ce13e9 https://ftpmirror.gnu.org/glibc/glibc-2.23.tar.xz
+glibc-2.24.tar.xz 99d4a3e8efd144d71488e478f62587578c0f4e1fa0b4eed47ee3d4975ebeb5d3 https://ftpmirror.gnu.org/glibc/glibc-2.24.tar.xz
+glibc-2.25.tar.xz 067bd9bb3390e79aa45911537d13c3721f1d9d3769931a30c2681bfee66f23a0 https://ftpmirror.gnu.org/glibc/glibc-2.25.tar.xz
+glibc-2.26.tar.xz e54e0a934cd2bc94429be79da5e9385898d2306b9eaf3c92d5a77af96190f6bd https://ftpmirror.gnu.org/glibc/glibc-2.26.tar.xz
+glibc-2.27.tar.xz 5172de54318ec0b7f2735e5a91d908afe1c9ca291fec16b5374d9faadfc1fc72 https://ftpmirror.gnu.org/glibc/glibc-2.27.tar.xz
+glibc-2.28.tar.xz b1900051afad76f7a4f73e71413df4826dce085ef8ddb785a945b66d7d513082 https://ftpmirror.gnu.org/glibc/glibc-2.28.tar.xz
+glibc-2.29.tar.xz f3eeb8d57e25ca9fc13c2af3dae97754f9f643bc69229546828e3a240e2af04b https://ftpmirror.gnu.org/glibc/glibc-2.29.tar.xz
+glibc-2.30.tar.xz e2c4114e569afbe7edbc29131a43be833850ab9a459d81beb2588016d2bbb8af https://ftpmirror.gnu.org/glibc/glibc-2.30.tar.xz
+glibc-2.31.tar.xz 9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17 https://ftpmirror.gnu.org/glibc/glibc-2.31.tar.xz
+glibc-2.32.tar.xz 1627ea54f5a1a8467032563393e0901077626dc66f37f10ee6363bb722222836 https://ftpmirror.gnu.org/glibc/glibc-2.32.tar.xz
+glibc-2.33.tar.xz 2e2556000e105dbd57f0b6b2a32ff2cf173bde4f0d85dffccfd8b7e51a0677ff https://ftpmirror.gnu.org/glibc/glibc-2.33.tar.xz
+glibc-2.34.tar.xz 44d26a1fe20b8853a48f470ead01e4279e869ac149b195dda4e44a195d981ab2 https://ftpmirror.gnu.org/glibc/glibc-2.34.tar.xz
+glibc-2.35.tar.xz 5123732f6b67ccd319305efd399971d58592122bcc2a6518a1bd2510dd0cf52e https://ftpmirror.gnu.org/glibc/glibc-2.35.tar.xz
+glibc-2.36.tar.xz 1c959fea240906226062cb4b1e7ebce71a9f0e3c0836c09e7e3423d434fcfe75 https://ftpmirror.gnu.org/glibc/glibc-2.36.tar.xz
+glibc-2.37.tar.xz 2257eff111a1815d74f46856daaf40b019c1e553156c69d48ba0cbfc1bb91a43 https://ftpmirror.gnu.org/glibc/glibc-2.37.tar.xz
+glibc-2.38.tar.xz fb82998998b2b29965467bc1b69d152e9c307d2cf301c9eafb4555b770ef3fd2 https://ftpmirror.gnu.org/glibc/glibc-2.38.tar.xz
+glibc-2.39.tar.xz f77bd47cf8170c57365ae7bf86696c118adb3b120d3259c64c502d3dc1e2d926 https://ftpmirror.gnu.org/glibc/glibc-2.39.tar.xz
+glibc-2.40.tar.xz 19a890175e9263d748f627993de6f4b1af9cd21e03f080e4bfb3a1fac10205a2 https://ftpmirror.gnu.org/glibc/glibc-2.40.tar.xz
+glibc-2.41.tar.xz a5a26b22f545d6b7d7b3dd828e11e428f24f4fac43c934fb071b6a7d0828e901 https://ftpmirror.gnu.org/glibc/glibc-2.41.tar.xz
+glibc-2.42.tar.xz d1775e32e4628e64ef930f435b67bb63af7599acb6be2b335b9f19f16509f17f https://ftpmirror.gnu.org/glibc/glibc-2.42.tar.xz
+glibc-2.43.tar.xz d9c86c6b5dbddb43a3e08270c5844fc5177d19442cf5b8df4be7c07cd5fa3831 https://ftpmirror.gnu.org/glibc/glibc-2.43.tar.xz
+glibc-2.44.tar.xz 37f600f2bef3c5e8300147059568b2a2e40a7ad6ccc65ce942556d49429cc667 https://ftpmirror.gnu.org/glibc/glibc-2.44.tar.xz
+
+# glibc's headers as Zig curates them: one set for every glibc version, which
+# declares what -D__GLIBC_MINOR__ says the target has. Only lib/libc/include/
+# {generic-glibc,x86-linux-gnu,aarch64-linux-gnu} is used.
+zig-x86_64-linux-0.17.0.tar.xz 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026 https://ziglang.org/download/0.17.0/zig-x86_64-linux-0.17.0.tar.xz
+
+# mingw-w64: headers, CRT and winpthreads.
+mingw-w64-v14.0.0.tar.bz2 6eaf921d9eb987d3820b364ea9775bc19b965ec81490b6fdd716526c28e1995c https://downloads.sourceforge.net/project/mingw-w64/mingw-w64/mingw-w64-release/mingw-w64-v14.0.0.tar.bz2
+
+# WASI: the sysroot (wasi-libc) and compiler-rt builtins wasi-sdk builds.
+wasi-sysroot-34.0.tar.gz 9d813544eeebe38b7b8f2244ed591de46b6db812c6dd1a257ff9f0d2a905a2be https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sysroot-34.0.tar.gz
+libclang_rt-34.0.tar.gz eee3e634dcf71aa22b1333391623cf5c9965a637dc428a27b1a858c026c587f1 https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/libclang_rt-34.0.tar.gz
+
+# What LLVM's official macOS and Windows archives reference but do not ship,
+# for a consumer that links them statically.
+zlib-1.3.1.tar.gz 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23 https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz
+zstd-1.5.7.tar.gz eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3 https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+libxml2-2.9.12.tar.xz 28a92f6ab1f311acf5e478564c49088ef0ac77090d9c719bbc5d518f1fe62eb9 https://download.gnome.org/sources/libxml2/2.9/libxml2-2.9.12.tar.xz
