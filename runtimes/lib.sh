@@ -17,9 +17,11 @@ mkdir -p "$WORK" "$SRC_CACHE"
 log() { printf '%s: %s\n' "$(basename "$0")" "$*" >&2; }
 die() { log "error: $*"; exit 1; }
 
+# From standard input, so no path is printed (sha256sum escapes a path with a
+# backslash, as Git Bash's on Windows are, with a leading backslash).
 sha256_of() {
-    if command -v sha256sum > /dev/null; then sha256sum "$1" | cut -d' ' -f1
-    else shasum -a 256 "$1" | cut -d' ' -f1; fi
+    if command -v sha256sum > /dev/null; then sha256sum < "$1" | cut -d' ' -f1
+    else shasum -a 256 < "$1" | cut -d' ' -f1; fi
 }
 
 # fetch <file>: the path of a pinned download (sources.txt), downloaded once and
