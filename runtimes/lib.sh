@@ -50,8 +50,11 @@ unpack() {
     shift 2
     rm -rf "$dir"
     mkdir -p "$dir"
-    if [ $# -gt 0 ] && tar --version 2> /dev/null | grep -q GNU; then
-        tar -xf "$archive" -C "$dir" --strip-components=1 --wildcards "$@"
+    if tar --version 2> /dev/null | grep -q GNU; then
+        # GNU tar takes a name with a colon (D:\..., on Windows) for a remote
+        # host's file without --force-local, and patterns only with
+        # --wildcards.
+        tar -xf "$archive" -C "$dir" --strip-components=1 --force-local --wildcards "$@"
     else
         tar -xf "$archive" -C "$dir" --strip-components=1 "$@"
     fi
