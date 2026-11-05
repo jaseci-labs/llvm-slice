@@ -2,7 +2,8 @@
 # mingw-w64 for x86_64 Windows against the Universal CRT, built by its own
 # configure and make with Clang (the order llvm-mingw builds it in): the
 # headers, the CRT (start files, libmingw32.a, libmingwex.a, the import
-# libraries), compiler-rt's builtins, winpthreads, then LLVM's C++ runtime.
+# libraries), compiler-rt's builtins, winpthreads, then LLVM's C++ runtime;
+# and zlib, by its own MinGW makefile.
 #
 #   runtimes/mingw.sh <out>
 #
@@ -55,7 +56,17 @@ make -s -C "$b" install
 
 MINGW_SYSROOT="$out" sh "$RUNTIMES_DIR/llvm-runtimes.sh" "$triple" "$out/cxx" cxx
 
-for f in crt2.o crt2u.o dllcrt2.o libmingw32.a libmingwex.a libmoldname.a libucrt.a libkernel32.a libwinpthread.a; do
+# zlib, which Windows ships no DLL of: its own MinGW build (win32/Makefile.gcc)
+# of the static library, with its headers, so C programs and neojac's own
+# (whose zlib module needs it) link it into themselves.
+z="$WORK/zlib-mingw"
+unpack zlib-1.3.1.tar.gz "$z"
+# shellcheck disable=SC2086
+make -s -C "$z" -f win32/Makefile.gcc libz.a CC="$cc" CFLAGS="-O2 -Wall" AR="$LLVM/bin/llvm-ar" ARFLAGS=rcs
+cp "$z/libz.a" "$prefix/lib/libz.a"
+cp "$z/zlib.h" "$z/zconf.h" "$prefix/include/"
+
+for f in crt2.o crt2u.o dllcrt2.o libmingw32.a libmingwex.a libmoldname.a libucrt.a libkernel32.a libwinpthread.a libz.a; do
     test -f "$prefix/lib/$f" || die "mingw-w64 installed no $f"
 done
 log "$triple: $(ls "$prefix/lib" | wc -l) libraries, $(du -sh "$prefix/lib" | cut -f1)"
