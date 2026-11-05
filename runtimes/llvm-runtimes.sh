@@ -95,7 +95,7 @@ case "$phase" in
     builtins)
         # shellcheck disable=SC2086
         cmake $common -S "$LLVM_SRC/compiler-rt" -B "$build" \
-            -DCMAKE_C_FLAGS="$flags" -DCMAKE_ASM_FLAGS="$flags" \
+            -DCMAKE_C_FLAGS="$flags" -DCMAKE_CXX_FLAGS="$flags" -DCMAKE_ASM_FLAGS="$flags" \
             -DCOMPILER_RT_BUILD_BUILTINS=ON -DCOMPILER_RT_BUILD_CRT=OFF \
             -DCOMPILER_RT_BUILD_SANITIZERS=OFF -DCOMPILER_RT_BUILD_XRAY=OFF \
             -DCOMPILER_RT_BUILD_LIBFUZZER=OFF -DCOMPILER_RT_BUILD_PROFILE=OFF \
