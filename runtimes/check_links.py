@@ -28,6 +28,10 @@ import sys
 
 RUNTIME_LIBS = ["libclang_rt.builtins.a", "libunwind.a", "libc++abi.a", "libc++.a"]
 
+# Libraries of a target beyond its C library and runtime that are checked the
+# same way: Windows' zlib, which programs link statically.
+EXTRA_LIBS = {"x86_64-windows-gnu": ["libz.a"]}
+
 # Symbols the linker defines for every output of the format.
 LINKER_DEFINED = {
     "elf": {"__dso_handle", "_GLOBAL_OFFSET_TABLE_", "__ehdr_start", "__executable_start",
@@ -92,7 +96,8 @@ def main() -> None:
     for target in sorted(os.listdir(os.path.join(tree, "targets"))):
         tdir = os.path.join(tree, "targets", target)
         arch = target.split("-", 1)[0]
-        libs = [os.path.join(tdir, n) for n in RUNTIME_LIBS if os.path.isfile(os.path.join(tdir, n))]
+        libs = [os.path.join(tdir, n) for n in RUNTIME_LIBS + EXTRA_LIBS.get(target, [])
+                if os.path.isfile(os.path.join(tdir, n))]
         need: set[str] = set()
         have: set[str] = set()
         for lib in libs:
@@ -112,7 +117,7 @@ def main() -> None:
         elif target.endswith("-windows-gnu"):
             fmt = "coff"
             for n in os.listdir(tdir):
-                if (n.endswith(".a") or n.endswith(".o")) and n not in RUNTIME_LIBS:
+                if (n.endswith(".a") or n.endswith(".o")) and n not in RUNTIME_LIBS + EXTRA_LIBS[target]:
                     have |= nm(llvm_nm, os.path.join(tdir, n))[1]
         elif target.endswith("-macos"):
             fmt = "macho"
