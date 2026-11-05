@@ -181,7 +181,10 @@ jobs:
       - name: Static libxml2 for the Windows archives
         run: |
           set -eu
-          WORK="$RUNNER_TEMP/work" SRC_CACHE="$RUNNER_TEMP/src" sh runtimes/host-libs.sh windows-x86_64 out/host-windows-x86_64
+          # lib.sh's default work directories: under the checkout, as Git
+          # Bash's POSIX paths (RUNNER_TEMP is a D:\ path, which GNU tar
+          # mangles).
+          sh runtimes/host-libs.sh windows-x86_64 out/host-windows-x86_64
           tar -czf windows.tar.gz -C out .
       - uses: actions/upload-artifact@v4
         with:
