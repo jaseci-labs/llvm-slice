@@ -9,7 +9,8 @@ name: Build runtimes
 #                      own install), glibc's (Zig's curated set: one set for
 #                      every glibc release), mingw-w64's, and the macOS SDK's
 #   libc/glibc/        the ABI lists of every glibc release from 2.17, merged
-#   libc/darwin/       libSystem's stub, from the macOS SDK
+#   libc/darwin/       libSystem's stub, and the frameworks programs link
+#                      besides it (their headers and stubs), from the macOS SDK
 #   libcxx/, libunwind/  LLVM's C++ runtime headers
 #   targets/<target>/  each target's libraries and start files: musl;
 #                      glibc's start files for each band of releases; mingw-w64's

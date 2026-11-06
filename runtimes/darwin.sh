@@ -6,6 +6,9 @@
 #                          headers (c++/), which LLVM's own libc++ replaces
 #   <out>/libSystem.tbd    the SDK's stub of libSystem, restricted to the
 #                          architectures the pinned LLVM's TextAPI reads
+#   <out>/frameworks/<name>.framework/{Headers/,<name>.tbd}
+#                          the frameworks below: each one's headers, and its
+#                          stub restricted as libSystem's is
 #   <out>/SDK_VERSION
 #   <out>/<arch>/lib       compiler-rt's builtins and LLVM's C++ runtime for
 #                          macOS 14.0 and later, arm64 and x86_64
@@ -30,6 +33,56 @@ mkdir -p "$out/include"
 python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
     "$sdk/usr/lib/libSystem.tbd" "$out/libSystem.tbd"
 
+# The frameworks besides libSystem that the programs neojac builds link:
+# CPython's _scproxy, which urllib.request imports on macOS, reads the system's
+# proxy settings through SystemConfiguration, whose headers include
+# CoreFoundation's and Security's. Each is laid out flat (no Versions/ or
+# symbolic links), as Clang's -iframework and LLD's -syslibroot find it.
+FRAMEWORKS="CoreFoundation Security SystemConfiguration"
+rm -rf "$out/frameworks"
+for f in $FRAMEWORKS; do
+    src="$sdk/System/Library/Frameworks/$f.framework"
+    dst="$out/frameworks/$f.framework"
+    mkdir -p "$dst/Headers"
+    (cd "$src/Headers/" && COPYFILE_DISABLE=1 tar -cf - .) | (cd "$dst/Headers" && tar -xf -)
+    python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
+        "$src/$f.tbd" "$dst/$f.tbd"
+done
+
+# The stubs must be ones LLD reads, and the frameworks' headers whole: compile a
+# program that includes each framework's umbrella header, with only these
+# headers and Clang's own, and link it, calling into each framework, for both
+# arches, against these stubs alone (a system root holding only the frameworks;
+# what libSystem re-exports resolves inside its stub), as a link on a machine
+# without the SDK does.
+rm -rf "$WORK/tbd-root"
+mkdir -p "$WORK/tbd-root/System/Library"
+cp -R "$out/frameworks" "$WORK/tbd-root/System/Library/Frameworks"
+cat > "$WORK/tbd-check.c" <<'EOF'
+#include <CoreFoundation/CoreFoundation.h>
+#include <Security/Security.h>
+#include <SystemConfiguration/SystemConfiguration.h>
+
+int main(void) {
+    unsigned char b[8];
+    CFDictionaryRef proxies = SCDynamicStoreCopyProxies(NULL);
+    if (proxies != NULL) {
+        CFRelease(proxies);
+    }
+    return SecRandomCopyBytes(kSecRandomDefault, sizeof b, b);
+}
+EOF
+resource="$("$LLVM/bin/clang" -print-resource-dir)/include"
+framework_args=""
+for f in $FRAMEWORKS; do framework_args="$framework_args -framework $f"; done
+for t in arm64-apple-macosx14.0 x86_64-apple-macosx14.0; do
+    "$LLVM/bin/clang" -target "$t" -nostdinc -isystem "$resource" -isystem "$out/include" \
+        -iframework "$out/frameworks" -c "$WORK/tbd-check.c" -o "$WORK/tbd-check.o"
+    "$LLVM/bin/ld64.lld" -arch "${t%%-*}" -platform_version macos 14.0 14.0 -syslibroot "$WORK/tbd-root" \
+        -fatal_warnings -o "$WORK/tbd-check" \
+        "$WORK/tbd-check.o" "$out/libSystem.tbd" $framework_args
+done
+
 for arch in aarch64 x86_64; do
     triple="$(echo "$arch" | sed 's/^aarch64$/arm64/')-apple-macosx"
     SDKROOT="$sdk" sh "$RUNTIMES_DIR/llvm-runtimes.sh" "$triple" "$out/$arch-builtins" builtins
@@ -38,15 +91,4 @@ for arch in aarch64 x86_64; do
     rm -rf "$out/$arch-builtins"
 done
 
-# The stub must be one LLD reads: link a program against it, for both arches,
-# resolving what libSystem re-exports inside the stub (an empty system root), as
-# a link on a machine without the SDK does.
-mkdir -p "$WORK/empty-root"
-printf 'int main(void) { return 0; }\n' > "$WORK/tbd-check.c"
-for t in arm64-apple-macosx14.0 x86_64-apple-macosx14.0; do
-    "$LLVM/bin/clang" -target "$t" -nostdinc -isystem "$out/include" -c "$WORK/tbd-check.c" -o "$WORK/tbd-check.o"
-    "$LLVM/bin/ld64.lld" -arch "${t%%-*}" -platform_version macos 14.0 14.0 -syslibroot "$WORK/empty-root" \
-        -fatal_warnings -o "$WORK/tbd-check" \
-        "$WORK/tbd-check.o" "$out/libSystem.tbd"
-done
-log "SDK $(cat "$out/SDK_VERSION"): $(find "$out/include" -name '*.h' | wc -l) headers"
+log "SDK $(cat "$out/SDK_VERSION"): $(find "$out/include" "$out/frameworks" -name '*.h' | wc -l) headers"
