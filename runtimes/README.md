@@ -39,7 +39,7 @@ own build system with the LLVM release's Clang.
 | glibc's start files | `glibc-crt.sh`, `era-deps.sh` | glibc's configure and make of each band's first release, with the GCC of its time, in a distribution of its era (glibc builds only with GCC) |
 | glibc's ABI lists | `glibc-data.sh`, `abilists.py` | every release's own lists from 2.17 to 2.44, merged: which library exports each symbol at which version node, in which releases |
 | glibc's headers | `glibc-data.sh` | Zig 0.17.0's curated set: one set for every release, whose declarations follow `-D__GLIBC_MINOR__` |
-| mingw-w64 | `mingw.sh` | its configure and make, in llvm-mingw's order: headers, CRT, compiler-rt's builtins, winpthreads, the C++ runtime |
+| mingw-w64 | `mingw.sh` | its configure and make, in llvm-mingw's order: headers, CRT, compiler-rt's builtins, winpthreads, the C++ runtime; with two fixes to its headers (`patches/`): `<intrin.h>` included after `<cpuid.h>` no longer breaks on `<cpuid.h>`'s `__cpuid` macro, and `<stdlib.h>` declares the Universal CRT's `_set_thread_local_invalid_parameter_handler` and `_get_thread_local_invalid_parameter_handler`, which its import libraries export |
 | zlib for Windows | `mingw.sh` | zlib's own MinGW makefile (`win32/Makefile.gcc`), the static library |
 | compiler-rt, libunwind, libc++abi, libc++ | `llvm-runtimes.sh` | LLVM's own CMake, from the release's sources |
 | the macOS SDK's headers, libSystem's stub and the frameworks' | `darwin.sh`, `tbd_targets.py` | the runner's SDK, the stubs restricted to the architectures the release's TextAPI reads |

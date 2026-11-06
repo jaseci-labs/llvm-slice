@@ -16,6 +16,12 @@ llvm_toolchain
 triple=x86_64-w64-mingw32
 src="$WORK/mingw-w64"
 unpack mingw-w64-v14.0.0.tar.bz2 "$src"
+# Two fixes to its headers, which its master lacks too (runtimes/patches/):
+# <intrin.h> after <cpuid.h>, and the Universal CRT's per-thread invalid
+# parameter handler, which its import libraries export but no header declared.
+for p in mingw-w64-intrin-cpuid-order.patch mingw-w64-thread-local-invalid-parameter-handler.patch; do
+    (cd "$src" && patch -p1 < "$RUNTIMES_DIR/patches/$p")
+done
 rm -rf "$out/$triple"
 prefix="$out/$triple"
 cc="$LLVM/bin/clang --target=$triple --sysroot=$out -fuse-ld=lld -rtlib=compiler-rt -unwindlib=none"

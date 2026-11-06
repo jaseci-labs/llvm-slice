@@ -1,0 +1,14 @@
+--- a/mingw-w64-headers/crt/intrin.h
++++ b/mingw-w64-headers/crt/intrin.h
+@@ -38,6 +38,11 @@
+ #include <setjmp.h>
+ #endif
+ #include <stddef.h>
++/* <cpuid.h>'s __cpuid is a macro of five arguments, which would break the
++   declarations of the MSVC intrinsic below when <cpuid.h> came first (it is
++   undefined below too, for when it comes after: either way the MSVC one is
++   what intrin.h gives). */
++#undef __cpuid
+ #include <psdk_inc/intrin-impl.h>
+ 
+ /*

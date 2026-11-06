@@ -1,0 +1,16 @@
+--- a/mingw-w64-headers/crt/stdlib.h
++++ b/mingw-w64-headers/crt/stdlib.h
+@@ -140,6 +140,13 @@
+   typedef void (__cdecl *_invalid_parameter_handler)(const wchar_t *,const wchar_t *,const wchar_t *,unsigned int,uintptr_t);
+   _CRTIMP _invalid_parameter_handler __cdecl _set_invalid_parameter_handler(_invalid_parameter_handler _Handler);
+   _CRTIMP _invalid_parameter_handler __cdecl _get_invalid_parameter_handler(void);
++#ifdef _UCRT
++  /* The Universal CRT's per-thread handler, which a thread sets around calls
++     whose invalid arguments it handles itself (CPython's _Py_BEGIN_SUPPRESS_IPH),
++     as the Windows SDK's corecrt.h declares it. */
++  _CRTIMP _invalid_parameter_handler __cdecl _set_thread_local_invalid_parameter_handler(_invalid_parameter_handler _Handler);
++  _CRTIMP _invalid_parameter_handler __cdecl _get_thread_local_invalid_parameter_handler(void);
++#endif
+ 
+ #ifndef _CRT_ERRNO_DEFINED
+ #define _CRT_ERRNO_DEFINED
