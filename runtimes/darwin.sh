@@ -9,6 +9,11 @@
 #   <out>/frameworks/<name>.framework/{Headers/,<name>.tbd}
 #                          the frameworks below: each one's headers, and its
 #                          stub restricted as libSystem's is
+#   <out>/root/usr/lib/<name>.tbd
+#                          the stubs of the libraries those frameworks
+#                          re-export besides one another and libSystem
+#                          (CoreFoundation's libobjc), at their install names,
+#                          where a link's system root resolves a re-export
 #   <out>/SDK_VERSION
 #   <out>/<arch>/lib       compiler-rt's builtins and LLVM's C++ runtime for
 #                          macOS 14.0 and later, arm64 and x86_64
@@ -49,6 +54,37 @@ for f in $FRAMEWORKS; do
         "$src/$f.tbd" "$dst/$f.tbd"
 done
 
+# What the frameworks re-export and do not inline (CoreFoundation re-exports
+# libobjc): each such library's stub too, restricted as theirs are, at its
+# install name, and what it re-exports in turn. libSystem's own parts are
+# inlined in its stub; the frameworks re-export one another.
+rm -rf "$out/root"
+stubs="$out/libSystem.tbd $out/frameworks/*/*.tbd"
+while :; do
+    # shellcheck disable=SC2086
+    names="$(python3 "$RUNTIMES_DIR/tbd_reexports.py" $stubs)"
+    added=""
+    for n in $names; do
+        case "$n" in
+            /usr/lib/libSystem.B.dylib) continue ;;
+            /System/Library/Frameworks/*.framework/*)
+                fw="${n#/System/Library/Frameworks/}"
+                fw="${fw%%.framework/*}"
+                case " $FRAMEWORKS " in *" $fw "*) continue ;; esac
+                die "a framework re-exports $n, a framework the runtimes do not ship" ;;
+        esac
+        dst="$out/root${n%.dylib}.tbd"
+        [ -f "$dst" ] && continue
+        src="$sdk${n%.dylib}.tbd"
+        [ -f "$src" ] || die "no stub of $n in the SDK ($src)"
+        mkdir -p "$(dirname "$dst")"
+        python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" "$src" "$dst"
+        stubs="$stubs $dst"
+        added=1
+    done
+    [ -n "$added" ] || break
+done
+
 # The stubs must be ones LLD reads, and the frameworks' headers whole: compile a
 # program that includes each framework's umbrella header, with only these
 # headers and Clang's own, and link it, calling into each framework, for both
@@ -57,6 +93,9 @@ done
 # without the SDK does.
 rm -rf "$WORK/tbd-root"
 mkdir -p "$WORK/tbd-root/System/Library"
+if [ -d "$out/root" ]; then
+    cp -R "$out/root/." "$WORK/tbd-root/"
+fi
 cp -R "$out/frameworks" "$WORK/tbd-root/System/Library/Frameworks"
 cat > "$WORK/tbd-check.c" <<'EOF'
 #include <CoreFoundation/CoreFoundation.h>

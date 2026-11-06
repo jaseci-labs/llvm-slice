@@ -19,6 +19,8 @@
 #                                    the macOS frameworks programs link besides
 #                                    libSystem, where a link's -syslibroot
 #                                    libc/darwin finds them
+#   libc/darwin/usr/lib/<name>.tbd   the libraries they re-export (libobjc), at
+#                                    their install names
 #   libcxx/include/                  libc++'s headers (and libc++abi's)
 #   libunwind/include/
 #   targets/<target>/                each target's libraries and start files, and
@@ -47,6 +49,9 @@ cp -R "$in/darwin/include" "$inc/darwin"
 cp "$in/darwin/libSystem.tbd" "$out/libc/darwin/libSystem.tbd"
 mkdir -p "$out/libc/darwin/System/Library"
 cp -R "$in/darwin/frameworks" "$out/libc/darwin/System/Library/Frameworks"
+if [ -d "$in/darwin/root" ]; then
+    cp -R "$in/darwin/root/." "$out/libc/darwin/"
+fi
 
 # libc++'s headers are the same for every target but for its configuration.
 cp -R "$in/rt-x86_64-linux-gnu/include/c++/v1" "$out/libcxx/include"
