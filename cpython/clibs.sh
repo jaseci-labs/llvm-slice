@@ -37,7 +37,9 @@ host=""
 RC=""
 LDFLAGS=""
 PYTHON="${PYTHON:-python3}"
-hidden="-fvisibility=hidden"
+# Hidden, and a section per function and datum, as neojac compiles a C
+# module's own C, so that a program's link keeps only what it reaches.
+hidden="-fvisibility=hidden -ffunction-sections -fdata-sections"
 case "$platform" in
     linux-x86_64 | linux-aarch64)
         arch="${platform#linux-}"
@@ -72,7 +74,7 @@ case "$platform" in
         AR="$LLVM/bin/llvm-ar" RANLIB="$LLVM/bin/llvm-ranlib"
         RC="$LLVM/bin/llvm-windres --target=pe-x86-64 -I$MINGW_SYSROOT/x86_64-w64-mingw32/include"
         # PE has no symbol visibility: what a DLL exports is what it says.
-        CFLAGS="-O2"
+        CFLAGS="-O2 -ffunction-sections -fdata-sections"
         host=x86_64-w64-mingw32
         ossl=mingw64
         check=""
