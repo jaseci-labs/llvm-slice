@@ -15,6 +15,12 @@
 #                                    darwin
 #   libc/glibc/abilist/<arch>.abilist, libc/glibc/abilist/VERSION
 #   libc/darwin/libSystem.tbd
+#   libc/darwin/System/Library/Frameworks/<name>.framework/{Headers/,<name>.tbd}
+#                                    the macOS frameworks programs link besides
+#                                    libSystem, where a link's -syslibroot
+#                                    libc/darwin finds them
+#   libc/darwin/usr/lib/<name>.tbd   the libraries they re-export (libobjc), at
+#                                    their install names
 #   libcxx/include/                  libc++'s headers (and libc++abi's)
 #   libunwind/include/
 #   targets/<target>/                each target's libraries and start files, and
@@ -41,6 +47,11 @@ mkdir -p "$inc/mingw-w64"
 (cd "$in/mingw/x86_64-w64-mingw32/include" && tar -cf - --exclude '*.idl' .) | (cd "$inc/mingw-w64" && tar -xf -)
 cp -R "$in/darwin/include" "$inc/darwin"
 cp "$in/darwin/libSystem.tbd" "$out/libc/darwin/libSystem.tbd"
+mkdir -p "$out/libc/darwin/System/Library"
+cp -R "$in/darwin/frameworks" "$out/libc/darwin/System/Library/Frameworks"
+if [ -d "$in/darwin/root" ]; then
+    cp -R "$in/darwin/root/." "$out/libc/darwin/"
+fi
 
 # libc++'s headers are the same for every target but for its configuration.
 cp -R "$in/rt-x86_64-linux-gnu/include/c++/v1" "$out/libcxx/include"
@@ -108,7 +119,7 @@ done
 {
     echo "# Built from these pinned inputs (runtimes/sources.txt):"
     grep -v '^#' "$RUNTIMES_DIR/sources.txt" | grep -v '^$'
-    echo "# macOS SDK $(cat "$in/darwin/SDK_VERSION") (headers and libSystem's stub)"
+    echo "# macOS SDK $(cat "$in/darwin/SDK_VERSION") (headers, and the stubs of libSystem and the frameworks)"
 } > "$out/SOURCES.txt"
 
 python3 "$RUNTIMES_DIR/check_links.py" "$out" "$LLVM/bin/llvm-nm"
