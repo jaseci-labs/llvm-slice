@@ -80,6 +80,9 @@ case "$platform" in
     *) die "unknown platform '$platform'" ;;
 esac
 export CC AR RANLIB CFLAGS LDFLAGS
+# Windows' resource compiler, for the version resources xz's and OpenSSL's
+# builds compile.
+[ -z "$RC" ] || export RC
 log "$platform: $CC $CFLAGS${LDFLAGS:+ (linking $LDFLAGS)}"
 
 licenses() { # licenses <library> <file>...
@@ -172,7 +175,7 @@ dir="--openssldir=/etc/ssl"
 # The flags go on Configure's command line, which adds them to the target's
 # own; CFLAGS in the environment would replace those.
 # shellcheck disable=SC2086
-(cd "$src" && env -u CFLAGS RC="$RC" perl ./Configure "$ossl" no-shared no-tests no-docs no-apps \
+(cd "$src" && env -u CFLAGS perl ./Configure "$ossl" no-shared no-tests no-docs no-apps \
     no-module no-engine no-dso no-legacy no-asm $dir --prefix="$out" --libdir=lib $CFLAGS)
 make -s -C "$src" -j"$JOBS" build_libs
 make -s -C "$src" install_dev
