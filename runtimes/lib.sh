@@ -1,13 +1,18 @@
 # Shared by the runtimes build scripts (sourced, not run).
 #
 #   SRC_CACHE  where pinned downloads are kept (default: $WORK/src)
+#   SOURCES    the lists of pinned downloads, separated by spaces (default:
+#              runtimes/sources.txt; cpython/'s scripts add their own)
 #   WORK       scratch space (default: ./work)
 #   LLVM       an extracted LLVM release (bin/clang, bin/lld, bin/llvm-ar, ...);
 #              llvm_toolchain sets it for the host when it is unset.
+#
+# A script outside runtimes/ sets RUNTIMES_DIR before sourcing this.
 
 set -eu
 
-RUNTIMES_DIR="$(cd "$(dirname "$0")" && pwd)"
+RUNTIMES_DIR="${RUNTIMES_DIR:-$(cd "$(dirname "$0")" && pwd)}"
+SOURCES="${SOURCES:-$RUNTIMES_DIR/sources.txt}"
 WORK="${WORK:-$PWD/work}"
 SRC_CACHE="${SRC_CACHE:-$WORK/src}"
 LLVM_VERSION=22.1.8
@@ -24,10 +29,12 @@ sha256_of() {
     else shasum -a 256 < "$1" | cut -d' ' -f1; fi
 }
 
-# fetch <file>: the path of a pinned download (sources.txt), downloaded once and
+# fetch <file>: the path of a pinned download ($SOURCES), downloaded once and
 # checked against its pinned sha256 every time.
 fetch() {
-    line="$(grep -E "^$1 " "$RUNTIMES_DIR/sources.txt")" || die "$1 is not pinned in sources.txt"
+    # shellcheck disable=SC2086
+    line="$(grep -h -E "^$1 " $SOURCES | head -1)"
+    [ -n "$line" ] || die "$1 is not pinned in $SOURCES"
     want="$(echo "$line" | cut -d' ' -f2)"
     url="$(echo "$line" | cut -d' ' -f3)"
     path="$SRC_CACHE/$1"

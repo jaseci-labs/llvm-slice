@@ -42,7 +42,7 @@ on:
   pull_request:
     paths:
       - "runtimes/**"
-      - "scripts/pack_runtimes.jac"
+      - "scripts/pack_slice.jac"
       - ".github/workflows/build-runtimes.yml"
 
 concurrency:
@@ -225,7 +225,7 @@ jobs:
           set -eu
           rev="$REVISION"
           [ "$rev" = 0 ] && rev=1
-          jac run scripts/pack_runtimes.jac --tree tree --version "$LLVM_VERSION" --revision "$rev" --out-dir dist | tee record.json
+          jac run scripts/pack_slice.jac --kind runtimes --tree tree --version "$LLVM_VERSION" --revision "$rev" --out-dir dist | tee record.json
           echo "revision=$rev" >> "$GITHUB_OUTPUT"
       - uses: actions/upload-artifact@v4
         with:
