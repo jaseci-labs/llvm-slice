@@ -31,9 +31,11 @@ rm -rf "${out:?}"/*
 mkdir -p "$out/include" "$out/lib" "$out/licenses"
 
 # host: configure's --host ("" for a native build); CC, AR, RANLIB, CFLAGS:
-# what every build compiles with; ossl: OpenSSL's Configure target.
+# what every build compiles with, and LDFLAGS what a configure check links
+# with besides; ossl: OpenSSL's Configure target.
 host=""
 RC=""
+LDFLAGS=""
 PYTHON="${PYTHON:-python3}"
 hidden="-fvisibility=hidden"
 case "$platform" in
@@ -62,8 +64,11 @@ case "$platform" in
         llvm_toolchain
         [ -d "${MINGW_SYSROOT:-}/x86_64-w64-mingw32" ] || die "MINGW_SYSROOT is not runtimes/mingw.sh's output"
         # As runtimes/mingw.sh builds zlib for Windows (compiler-rt's builtins
-        # are where it put them, in the Clang's resource directory).
-        CC="$LLVM/bin/clang --target=x86_64-w64-mingw32 --sysroot=$MINGW_SYSROOT -fuse-ld=lld -rtlib=compiler-rt -unwindlib=none"
+        # are where it put them, in the Clang's resource directory); the link's
+        # own flags apart, which a compile would warn are unused (and xz's
+        # configure refuses flags that warn).
+        CC="$LLVM/bin/clang --target=x86_64-w64-mingw32 --sysroot=$MINGW_SYSROOT"
+        LDFLAGS="-fuse-ld=lld -rtlib=compiler-rt -unwindlib=none"
         AR="$LLVM/bin/llvm-ar" RANLIB="$LLVM/bin/llvm-ranlib"
         RC="$LLVM/bin/llvm-windres --target=pe-x86-64 -I$MINGW_SYSROOT/x86_64-w64-mingw32/include"
         # PE has no symbol visibility: what a DLL exports is what it says.
@@ -74,8 +79,8 @@ case "$platform" in
         ;;
     *) die "unknown platform '$platform'" ;;
 esac
-export CC AR RANLIB CFLAGS
-log "$platform: $CC $CFLAGS"
+export CC AR RANLIB CFLAGS LDFLAGS
+log "$platform: $CC $CFLAGS${LDFLAGS:+ (linking $LDFLAGS)}"
 
 licenses() { # licenses <library> <file>...
     name="$1"
