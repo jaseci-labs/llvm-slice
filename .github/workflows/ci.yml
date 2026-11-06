@@ -30,7 +30,7 @@ jobs:
           jac check scripts/discover.jac
           jac check scripts/repackage.jac
           jac check scripts/build_index.jac
-          jac check scripts/pack_runtimes.jac
+          jac check scripts/pack_slice.jac
       - name: Run tests
         run: |
           set -euo pipefail

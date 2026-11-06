@@ -116,3 +116,26 @@ standalone `llvm-<llvm>-runtimes-manifest.json`:
 
 A revision is never replaced: a rebuild is the next revision, so a client that
 pins a manifest's sha256 keeps getting the bytes it pinned.
+
+## The CPython slice's manifest
+
+Release `cpython-v<version>-<revision>` ships `cpython-<version>-dev.zip` (the
+tree `cpython/README.md` describes, plus an embedded `manifest.json`) and the
+standalone `cpython-<version>-manifest.json`, in the runtimes slice's form:
+
+```jsonc
+{
+  "schema_version": 1,
+  "kind": "cpython",
+  "cpython_version": "3.15.2",
+  "revision": 1,
+  "zip_asset": "cpython-3.15.2-dev.zip",
+  "zip_sha256": "…",                 // "" in the embedded copy
+  "files": {
+    "clibs/linux-x86_64/lib/libssl.a": { "size": 2041958, "sha256": "…" }
+    // … one entry for every member but manifest.json
+  }
+}
+```
+
+As with the runtimes, a revision is never replaced.

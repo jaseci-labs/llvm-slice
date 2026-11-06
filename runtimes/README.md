@@ -46,7 +46,7 @@ own build system with the LLVM release's Clang.
 | wasi-libc | `assemble.sh` | wasi-sdk's own build of it and of compiler-rt's builtins |
 | zlib, zstd, libxml2 (`host/`) | `host-libs.sh` | their CMake, with LLVM's release options: what the official macOS and Windows LLVM archives reference but do not ship |
 
-`assemble.sh` lays the pieces out and checks them; `scripts/pack_runtimes.jac`
+`assemble.sh` lays the pieces out and checks them; `scripts/pack_slice.jac`
 packs the tree. `.github/workflows/build-runtimes.yml` runs it all.
 
 Linux's headers include a few names that differ only in case
