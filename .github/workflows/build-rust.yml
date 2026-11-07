@@ -167,7 +167,7 @@ jobs:
             echo "# sources and wasi-libc are pinned in runtimes/sources.txt), with Zig $ZIG_VERSION:"
             grep -v '^#' rust/sources.txt | grep -v '^$'
             grep -E '^(llvm-project-22.1.8.src.tar.xz|wasi-sysroot-34.0.tar.gz) ' runtimes/sources.txt
-            echo "# and patched with llvm-slice rust/rustc-llvm-wrapper-in-llvm.patch"
+            echo "# and patched with llvm-slice rust/*.patch"
           } > tree/rust/SOURCES.txt
           du -sh tree/rust/host/* tree/rust/target/*
       - name: Pack the slice

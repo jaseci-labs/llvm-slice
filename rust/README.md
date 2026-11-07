@@ -54,11 +54,18 @@ disabled).
   (Windows' link against an import library of the functions it exports).
 - **rustc's source**, the release's, with Rust's own LLVM replaced by the
   upstream release's compiler-rt and libunwind (the standard library builds
-  compiler-rt's profiling runtime and start files), and one patch,
+  compiler-rt's profiling runtime and start files), and two patches:
   `rustc-llvm-wrapper-in-llvm.patch`: with `LLVM_PROVIDES_RUSTC_WRAPPER` set,
   `rustc_llvm` compiles no wrapper and links the LLVM library alone, no C++
   runtime or LLVM dependency, and `rustc_codegen_llvm` names no
-  `llvm-wrapper` library.
+  `llvm-wrapper` library; and the wrapper takes the function it appends to a
+  Rust string with (`LLVMRustSetStringWriter`) instead of naming a Rust
+  function, which a library linked before Rust cannot do.
+  `bootstrap-cross-proc-macros.patch`: a cross-compiled rustc's sysroot leaves
+  out the proc macros built for the host it is for, which bootstrap told
+  apart from the compiler's own libraries by file name, and those differ in a
+  cross build (Windows' `serde_derive-<hash>.dll` beside the build machine's
+  `libserde_derive-<hash>.so`).
 - **rustc's bootstrap**, with a generated `llvm-config` describing the LLVM
   library to it, runs `x.py dist` for the host's tools and the standard
   libraries.

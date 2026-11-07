@@ -31,8 +31,10 @@
 # compiler-rt and libunwind. No system library reaches a build (pkg-config is
 # disabled).
 #
-# rustc's source is patched once (rustc-llvm-wrapper-in-llvm.patch): it links
-# the LLVM library alone, which carries rustc's LLVM wrapper itself.
+# rustc's source is patched once: it links the LLVM library alone, which
+# carries rustc's LLVM wrapper itself (rustc-llvm-wrapper-in-llvm.patch), and a
+# cross-compiled rustc leaves out of its sysroot the proc macros built for the
+# host it is for (bootstrap-cross-proc-macros.patch).
 RUNTIMES_DIR="$(cd "$(dirname "$0")/../runtimes" && pwd)"
 . "$RUNTIMES_DIR/lib.sh"
 RUST_DIR="$(cd "$RUNTIMES_DIR/../rust" && pwd)"
@@ -90,7 +92,9 @@ if [ ! -f "$src/.prepared" ]; then
     tar -xf "$llvm_src" -C "$src/src/llvm-project" --strip-components=1 \
         llvm-project-22.1.8.src/compiler-rt llvm-project-22.1.8.src/libunwind llvm-project-22.1.8.src/cmake \
         llvm-project-22.1.8.src/runtimes llvm-project-22.1.8.src/llvm/cmake
-    (cd "$src" && patch -p1 < "$RUST_DIR/rustc-llvm-wrapper-in-llvm.patch")
+    for p in "$RUST_DIR"/*.patch; do
+        (cd "$src" && patch -p1 < "$p")
+    done
     touch "$src/.prepared"
 fi
 
@@ -269,6 +273,11 @@ case "$platform" in
     *) export LD_LIBRARY_PATH="$neollvm/$build" ;;
 esac
 export PKG_CONFIG=/bin/false
+if [ "$platform" = windows-x86_64 ]; then
+    # Where llvm-mingw keeps the runtime DLLs its programs load (libunwind.dll),
+    # which the bootstrap ships beside rustc.exe, finding them on PATH.
+    export PATH="$mingw/x86_64-w64-mingw32/bin:$PATH"
+fi
 cd "$src"
 rm -rf build/dist
 python3 x.py dist --host "$host" --target "$(echo $targets | tr ' ' ',')" rustc cargo clippy rustfmt rust-std
