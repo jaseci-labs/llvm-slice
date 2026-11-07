@@ -109,11 +109,11 @@ jobs:
           set -eu
           if [ -n "${{ matrix.image }}" ]; then
             # manylinux2014's own GCC and glibc 2.17; Zig from the runner.
-            # OpenSSL's Configure (cargo's) needs IPC::Cmd.
+            # OpenSSL's Configure (cargo's) needs IPC::Cmd and Time::Piece.
             zig="$(dirname "$(command -v zig)")"
             docker run --rm -v "$PWD:/w" -v "$BASE:$BASE" -v "$zig:/zig" -w /w \
               -e WORK -e SRC_CACHE -e "JOBS=$(nproc)" "${{ matrix.image }}" sh -c \
-              "yum install -y -q perl-IPC-Cmd > /dev/null && PATH=/zig:/opt/python/cp312-cp312/bin:\$PATH sh rust/build.sh ${{ matrix.platform }} /w/out"
+              "yum install -y -q perl-IPC-Cmd perl-Time-Piece > /dev/null && PATH=/zig:/opt/python/cp312-cp312/bin:\$PATH sh rust/build.sh ${{ matrix.platform }} /w/out"
             sudo chown -R "$(id -u):$(id -g)" out "$BASE"
           else
             sh rust/build.sh ${{ matrix.platform }} out
