@@ -10,3 +10,9 @@ rustc-1.99.0-src.tar.xz cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13
 # llvm-mingw: Clang, LLD, mingw-w64 with the Universal CRT, libunwind and
 # libc++, which build and link the Windows host's tools (gnullvm) on Linux.
 llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz 919380403de87dca3c581c2053230cd298af5e891286628ba0613b7fed370926 https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz
+
+# llvm-slice's own releases: the runtimes (every target's compiler-rt builtins
+# and musl; the zlib, zstd and libxml2 the LLVM archives link), and the LLVM
+# slices the LLVM library is linked from.
+llvm-22.1.8-runtimes-dev.zip 489747718bbf3647e1986ee3a6b3df1b564e886ba89e39236b26789dd0e827be https://github.com/jaseci-labs/llvm-slice/releases/download/runtimes-v22.1.8-4/llvm-22.1.8-runtimes-dev.zip
+llvm-22.1.8-aarch64-apple-darwin-dev.zip 91024b179d4c0ee78a565d934957ee275733151c18c6a3238a4ca65334037c25 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-apple-darwin-dev.zip
