@@ -4,7 +4,7 @@ with --export-dynamic or -export_dynamic) then exports none of the
 libraries', and a shared library it loads that bundles its own copy of one
 binds to its own.
 
-    python3 cpython/check_hidden.py <tool> <archive>...
+    python3 clibs/check_hidden.py <tool> <archive>...
 
 <tool> is `readelf` (ELF: a defined GLOBAL or WEAK symbol of DEFAULT
 visibility fails) or an `llvm-nm` (Mach-O, with -m: a defined `external`

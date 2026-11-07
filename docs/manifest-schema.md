@@ -132,10 +132,21 @@ standalone `cpython-<version>-manifest.json`, in the runtimes slice's form:
   "zip_asset": "cpython-3.15.2-dev.zip",
   "zip_sha256": "…",                 // "" in the embedded copy
   "files": {
-    "clibs/linux-x86_64/lib/libssl.a": { "size": 2041958, "sha256": "…" }
+    "cpython/lib/python3.15/os.py": { "size": 43120, "sha256": "…" }
     // … one entry for every member but manifest.json
   }
 }
 ```
+
+As with the runtimes, a revision is never replaced.
+
+## The clibs and Node slices' manifests
+
+The same form, for the other slices that `scripts/pack_slice.jac` packs:
+
+| Release | Assets | `kind` | Version field |
+|---|---|---|---|
+| `clibs-v<set>-<revision>` | `clibs-<set>-dev.zip`, `clibs-<set>-manifest.json` (`clibs/README.md`) | `clibs` | `clibs_version`: the set of library releases, named by when it was chosen (`2026.11`) |
+| `node-v<version>-<revision>` | `node-<version>-dev.zip`, `node-<version>-manifest.json` (`node/README.md`) | `node` | `node_version` |
 
 As with the runtimes, a revision is never replaced.

@@ -1,0 +1,14 @@
+# Every upstream input of the clibs slice, pinned: <file> <sha256> <url>.
+# fetch() in runtimes/lib.sh downloads a file once into $SRC_CACHE and checks
+# it here (clibs.sh searches this list, then runtimes/sources.txt).
+#
+# The C libraries the runtimes neojac compiles from their C are built on:
+# CPython's standard library and Node. One copy of each, at the version the
+# newest of them needs (Node 26.13's for SQLite, libffi and OpenSSL).
+zlib-1.4.tar.gz 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584 https://zlib.net/zlib-1.4.tar.gz
+bzip2-1.0.8.tar.gz ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269 https://distfiles.macports.org/bzip2/bzip2-1.0.8.tar.gz
+xz-5.8.1.tar.gz 507825b599356c10dca1cd720c9d0d0c9d5400b9de300af00e4d1ea150795543 https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.gz
+zstd-1.5.7.tar.gz eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3 https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
+sqlite-autoconf-3540000.tar.gz 134ec0802dda5795816e25d25872d20b312cb3973438c49b30bc40b7705ea9ed https://www.sqlite.org/2026/sqlite-autoconf-3540000.tar.gz
+libffi-3.8.0.tar.gz 7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4 https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.0.tar.gz
+openssl-3.5.9.tar.gz 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a https://github.com/openssl/openssl/releases/download/openssl-3.5.9/openssl-3.5.9.tar.gz

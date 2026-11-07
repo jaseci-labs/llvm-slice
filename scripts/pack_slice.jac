@@ -7,6 +7,10 @@ directory, so a client fetches the members it needs by HTTP range requests.
                     llvm-<V>-runtimes-manifest.json
   --kind cpython    the CPython slice's tree (cpython/README.md), for CPython
                     version V: cpython-<V>-dev.zip and cpython-<V>-manifest.json
+  --kind clibs      the clibs slice's tree (clibs/README.md), for the set of
+                    libraries V: clibs-<V>-dev.zip and clibs-<V>-manifest.json
+  --kind node       the Node slice's tree (node/README.md), for Node version
+                    V: node-<V>-dev.zip and node-<V>-manifest.json
 
 The manifest (docs/manifest-schema.md) lists every member's size and sha256,
 so a client checks each member it fetches against a manifest it pinned by
@@ -43,13 +47,13 @@ with entry {
         elif tok == "--out-dir" { out_dir = nxt; i += 1; }
         i += 1;
     }
-    if kind not in ["runtimes", "cpython"] or tree == "" or version == "" or revision < 1 {
-        eprint("usage: pack_slice.jac --kind runtimes|cpython --tree DIR --version V --revision N [--out-dir DIR]");
+    if kind not in ["runtimes", "cpython", "clibs", "node"] or tree == "" or version == "" or revision < 1 {
+        eprint("usage: pack_slice.jac --kind runtimes|cpython|clibs|node --tree DIR --version V --revision N [--out-dir DIR]");
         sys.exit(2);
     }
     # The assets' names, and the manifest's field naming the version.
-    stem: str = f"llvm-{version}-runtimes" if kind == "runtimes" else f"cpython-{version}";
-    version_key: str = "llvm_version" if kind == "runtimes" else "cpython_version";
+    stem: str = f"llvm-{version}-runtimes" if kind == "runtimes" else f"{kind}-{version}";
+    version_key: str = "llvm_version" if kind == "runtimes" else f"{kind}_version";
 
     rels: list[str] = [];
     for walked in os.walk(tree) {
