@@ -16,3 +16,5 @@ llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz 919380403de87dca3c581c205323
 # slices the LLVM library is linked from.
 llvm-22.1.8-runtimes-dev.zip 489747718bbf3647e1986ee3a6b3df1b564e886ba89e39236b26789dd0e827be https://github.com/jaseci-labs/llvm-slice/releases/download/runtimes-v22.1.8-4/llvm-22.1.8-runtimes-dev.zip
 llvm-22.1.8-aarch64-apple-darwin-dev.zip 91024b179d4c0ee78a565d934957ee275733151c18c6a3238a4ca65334037c25 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-apple-darwin-dev.zip
+llvm-22.1.8-x86_64-linux-libcxx-lld-r2-dev.zip 3353739c26fca76558d8de3a24fc8a5fd5b9d3bfe85426a33a25d7571ed6e5cb https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-x86_64-linux-libcxx-lld-r2-dev.zip
+llvm-22.1.8-aarch64-linux-libcxx-lld-r2-dev.zip fbfe562265551eecb20ea5a0ab2001dfb46cadf605fb5b5bcec0806f8f0bdb01 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-linux-libcxx-lld-r2-dev.zip
