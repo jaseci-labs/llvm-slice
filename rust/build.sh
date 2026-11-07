@@ -94,14 +94,16 @@ if [ ! -f "$src/.prepared" ]; then
     touch "$src/.prepared"
 fi
 
-# The runtimes slice (every target's compiler-rt builtins, musl), and
-# wasi-libc's sysroot.
+# What the build takes from the runtimes slice: every target's compiler-rt
+# builtins, and musl (not the rest, whose mingw-w64 names differ only in case,
+# which a case-insensitive file system would collapse); and wasi-libc's
+# sysroot.
 runtimes="$WORK/runtimes"
 if [ ! -f "$runtimes/SOURCES.txt" ]; then
     rm -rf "$runtimes"
     mkdir -p "$runtimes"
     zip="$(fetch llvm-22.1.8-runtimes-dev.zip)"
-    (cd "$runtimes" && unzip -q "$zip")
+    (cd "$runtimes" && unzip -q "$zip" SOURCES.txt 'targets/*/libclang_rt.builtins.a' 'targets/*-linux-musl/*')
 fi
 wasi="$WORK/wasi-sysroot"
 case " $targets " in
