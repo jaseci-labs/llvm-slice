@@ -1,0 +1,206 @@
+name: Build clibs slice
+
+# The clibs slice: the C libraries the runtimes neojac compiles from their C
+# are built on (CPython's standard library, Node), one copy of each, static
+# and hidden, for every platform, as one range-fetchable zip (the dev slices'
+# format) with a manifest pinning every member. Consumed by neojac, which
+# ships the tree in its lib/, and by the Node slice's build (build-node.yml).
+#
+#   clibs/<platform>/  zlib, bzip2, liblzma, Zstandard, SQLite, libffi and
+#                      OpenSSL, with their headers and licenses, for
+#                      linux-x86_64, linux-aarch64, macos-aarch64,
+#                      macos-x86_64 and windows-x86_64
+#   clibs/SOURCES.txt
+#
+# Every input is pinned by sha256 in clibs/sources.txt (and the LLVM release
+# and mingw-w64 in runtimes/sources.txt); each library is built by its own
+# build system. clibs/README.md has the layout and how each is made.
+#
+# Pull requests that touch the build run it without publishing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Revision of the slice for this set of libraries (the release is clibs-v<set>-<revision>)"
+        type: string
+        default: "1"
+      dry_run:
+        description: "Build and check the slice, but do not publish it"
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - "clibs/**"
+      - "runtimes/lib.sh"
+      - "runtimes/mingw.sh"
+      - "runtimes/llvm-runtimes.sh"
+      - "scripts/pack_slice.jac"
+      - ".github/workflows/build-clibs.yml"
+
+concurrency:
+  group: build-clibs-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  # The set of library releases clibs/sources.txt pins, named by when it was
+  # chosen.
+  CLIBS_SET: "2026.11"
+  JACLANG_VERSION: "0.16.7"
+  # manylinux_2_28 2026.11.01-2: AlmaLinux 8, glibc 2.28.
+  MANYLINUX_X86_64: quay.io/pypa/manylinux_2_28_x86_64@sha256:7e41b1c7fd64dfc69703a1124b43c404382973ee06ec5d764b85c34d2221fded
+  MANYLINUX_AARCH64: quay.io/pypa/manylinux_2_28_aarch64@sha256:54b271d9562a3686298880df05367909e949ed317e7b1b79b59c696d75f78676
+
+jobs:
+  linux:
+    # Natively on each architecture, in a manylinux_2_28 container: its GCC,
+    # against glibc 2.28.
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ${{ matrix.arch == 'aarch64' && 'ubuntu-24.04-arm' || 'ubuntu-24.04' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: src
+          key: clibs-src-linux-${{ hashFiles('clibs/sources.txt') }}
+      - name: C libraries for linux-${{ matrix.arch }}
+        run: |
+          set -eu
+          image="$MANYLINUX_X86_64"
+          [ "${{ matrix.arch }}" = aarch64 ] && image="$MANYLINUX_AARCH64"
+          # OpenSSL's Configure needs perl's IPC::Cmd and Time::Piece.
+          docker run --rm -v "$PWD:/w" "$image" sh -c \
+            "dnf install -y -q perl-IPC-Cmd perl-Time-Piece > /dev/null && cd /w && WORK=/work SRC_CACHE=/w/src PYTHON=/opt/python/cp312-cp312/bin/python3 sh clibs/clibs.sh linux-${{ matrix.arch }} /w/out/clibs/linux-${{ matrix.arch }}"
+          sudo chown -R "$(id -u):$(id -g)" out src
+          tar -czf clibs.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clibs-linux-${{ matrix.arch }}
+          path: clibs.tar.gz
+          retention-days: 7
+
+  darwin:
+    # Both architectures on one runner, with the LLVM release's Clang and the
+    # runner's SDK.
+    runs-on: macos-26
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: clibs-src-darwin-${{ hashFiles('clibs/sources.txt', 'runtimes/sources.txt') }}
+      - name: C libraries for macOS
+        run: |
+          set -eu
+          sh clibs/clibs.sh macos-aarch64 out/clibs/macos-aarch64
+          sh clibs/clibs.sh macos-x86_64 out/clibs/macos-x86_64
+      # COPYFILE_DISABLE: no AppleDouble (._*) entries for the files' extended
+      # attributes, which the Linux job that unpacks this would write as files.
+      - name: Pack
+        run: COPYFILE_DISABLE=1 tar -czf clibs.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clibs-darwin
+          path: clibs.tar.gz
+          retention-days: 7
+
+  windows:
+    # On Linux: mingw-w64 as the runtimes build it (runtimes/mingw.sh), then
+    # the libraries with the same Clang against it.
+    runs-on: ubuntu-24.04
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: clibs-src-windows-${{ hashFiles('clibs/sources.txt', 'runtimes/sources.txt') }}
+      - name: mingw-w64
+        run: sh runtimes/mingw.sh "$WORK/mingw"
+      - name: C libraries for windows-x86_64
+        run: |
+          set -eu
+          MINGW_SYSROOT="$WORK/mingw" sh clibs/clibs.sh windows-x86_64 out/clibs/windows-x86_64
+          tar -czf clibs.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clibs-windows
+          path: clibs.tar.gz
+          retention-days: 7
+
+  pack:
+    needs: [linux, darwin, windows]
+    runs-on: ubuntu-24.04
+    env:
+      REVISION: ${{ inputs.revision || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble and check
+        run: |
+          set -eu
+          mkdir -p tree
+          for a in artifacts/*/*.tar.gz; do tar -xzf "$a" -C tree; done
+          for p in linux-x86_64 linux-aarch64 macos-aarch64 macos-x86_64 windows-x86_64; do
+            for f in libz.a libbz2.a liblzma.a libzstd.a libsqlite3.a libffi.a libcrypto.a libssl.a; do
+              test -f "tree/clibs/$p/lib/$f" || { echo "::error::no clibs/$p/lib/$f"; exit 1; }
+            done
+          done
+          {
+            echo "# Built from these pinned inputs (llvm-slice clibs/sources.txt; the"
+            echo "# LLVM release and mingw-w64 that built the macOS and Windows libraries"
+            echo "# are pinned in runtimes/sources.txt):"
+            grep -v '^#' clibs/sources.txt | grep -v '^$'
+          } > tree/clibs/SOURCES.txt
+          du -sh tree/clibs/*
+      - name: Pack the slice
+        id: pack
+        run: |
+          set -eu
+          rev="$REVISION"
+          [ "$rev" = 0 ] && rev=1
+          jac run scripts/pack_slice.jac --kind clibs --tree tree --version "$CLIBS_SET" --revision "$rev" --out-dir dist | tee record.json
+          echo "revision=$rev" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: clibs-slice
+          path: |
+            dist/*
+            record.json
+          retention-days: 7
+      - name: Publish clibs-v${{ env.CLIBS_SET }}-${{ steps.pack.outputs.revision }}
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="clibs-v$CLIBS_SET-${{ steps.pack.outputs.revision }}"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::$tag exists; publish a new revision instead of replacing one consumers pin"
+            exit 1
+          fi
+          gh release create "$tag" --latest=false \
+            --title "clibs $CLIBS_SET slice (revision ${{ steps.pack.outputs.revision }})" \
+            --notes "The C libraries the runtimes neojac compiles from their C (CPython's standard library, Node) are built on: zlib, bzip2, liblzma, Zstandard, SQLite, libffi and OpenSSL, static and hidden, for every platform (clibs/README.md). Pin clibs-$CLIBS_SET-manifest.json by its sha256 (record.json)." \
+            dist/* record.json

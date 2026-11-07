@@ -3,16 +3,9 @@
 # it here (cpython/'s scripts search this list, then runtimes/sources.txt).
 
 # CPython: its standard library, and the build that writes its frozen modules.
+# (The C libraries its standard library is built on are the clibs slice's,
+# clibs/.)
 Python-3.15.2.tar.xz 8b5536d280142ecf6cdfe15d12a21ba1c65e300bbf7b28a8d0cdb849575797de https://www.python.org/ftp/python/3.15.2/Python-3.15.2.tar.xz
 
 # typeshed's stubs of the standard library (its main on 2026-11-06).
 typeshed-13ffe24f8b9d0069a7a45c42eed3f5513e1472a1.tar.gz 651428ade6a9b230ceee0a6b26f0e5e7a664d1c74b9c1d3438d0d9f632d52ae3 https://github.com/python/typeshed/archive/13ffe24f8b9d0069a7a45c42eed3f5513e1472a1.tar.gz
-
-# The C libraries CPython's standard library is built on.
-zlib-1.4.tar.gz 02dd159783677a749c04adbdd02b55b8a2bcc7e054f51b76b549199a916ad584 https://zlib.net/zlib-1.4.tar.gz
-bzip2-1.0.8.tar.gz ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269 https://distfiles.macports.org/bzip2/bzip2-1.0.8.tar.gz
-xz-5.8.1.tar.gz 507825b599356c10dca1cd720c9d0d0c9d5400b9de300af00e4d1ea150795543 https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.gz
-zstd-1.5.7.tar.gz eb33e51f49a15e023950cd7825ca74a4a2b43db8354825ac24fc1b7ee09e6fa3 https://github.com/facebook/zstd/releases/download/v1.5.7/zstd-1.5.7.tar.gz
-sqlite-autoconf-3530400.tar.gz 0e9483900e92cd5de8fd48d16bf9200145a61f7fd5be542a5ac81d8a9516eb9c https://www.sqlite.org/2026/sqlite-autoconf-3530400.tar.gz
-libffi-3.4.8.tar.gz bc9842a18898bfacb0ed1252c4febcc7e78fa139fd27fdc7a3e30d9d9356119b https://github.com/libffi/libffi/releases/download/v3.4.8/libffi-3.4.8.tar.gz
-openssl-3.5.8.tar.gz a8f84a39918ec6415ce765d9b429d313ba97b8143169c172e734b9514464f5b2 https://github.com/openssl/openssl/releases/download/openssl-3.5.8/openssl-3.5.8.tar.gz
