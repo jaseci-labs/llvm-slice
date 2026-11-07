@@ -139,3 +139,26 @@ standalone `cpython-<version>-manifest.json`, in the runtimes slice's form:
 ```
 
 As with the runtimes, a revision is never replaced.
+
+## The Rust slice's manifest
+
+Release `rust-v<version>-<revision>` ships `rust-<version>-dev.zip` (the tree
+`rust/README.md` describes, plus an embedded `manifest.json`) and the
+standalone `rust-<version>-manifest.json`, in the runtimes slice's form:
+
+```jsonc
+{
+  "schema_version": 1,
+  "kind": "rust",
+  "rust_version": "1.99.0",
+  "revision": 1,
+  "zip_asset": "rust-1.99.0-dev.zip",
+  "zip_sha256": "…",                 // "" in the embedded copy
+  "files": {
+    "rust/target/wasm32-wasip1/lib/libstd-….rlib": { "size": 4186210, "sha256": "…" }
+    // … one entry for every member but manifest.json
+  }
+}
+```
+
+As with the runtimes, a revision is never replaced.
