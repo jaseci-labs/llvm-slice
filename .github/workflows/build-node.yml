@@ -1,0 +1,175 @@
+name: Build Node slice
+
+# The Node slice: what a toolchain that compiles Node's own C++ and libuv
+# itself needs from the rest of a build of Node, as one range-fetchable zip
+# (the dev slices' format) with a manifest pinning every member. Consumed by
+# neojac, which ships the tree in its lib/ and builds Node from its own copy
+# of Node's C++ (rt/node) with it.
+#
+#   node/<platform>/{lib,include,gen,build.json}
+#                      V8, ICU and Node's other dependencies prebuilt, their
+#                      headers, what Node's build generates, and how Node's
+#                      own C++ is compiled, for linux-x86_64, linux-aarch64,
+#                      macos-aarch64 and macos-x86_64
+#   node/npm/, node/LICENSE, node/SOURCES.txt
+#
+# Built with the runtimes slice's libc++ and against the clibs slice's
+# libraries, the releases neojac pins (the inputs below). node/README.md has
+# the layout and how it is made.
+#
+# Pull requests that touch the build run it without publishing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Revision of the slice for this Node version (the release is node-v<version>-<revision>)"
+        type: string
+        default: "1"
+      dry_run:
+        description: "Build and check the slice, but do not publish it"
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - "node/**"
+      - "runtimes/lib.sh"
+      - "scripts/pack_slice.jac"
+      - ".github/workflows/build-node.yml"
+
+concurrency:
+  group: build-node-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "26.13.0"
+  JACLANG_VERSION: "0.16.7"
+  # Node's Temporal is built by Rust 1.86 or newer (deps/crates/Cargo.toml).
+  RUST_VERSION: "1.91.0"
+  # The runtimes slice whose libc++ the slice is compiled with, and the clibs
+  # slice it links: the releases neojac pins.
+  RUNTIMES_RELEASE: runtimes-v22.1.8-3
+  RUNTIMES_ZIP: llvm-22.1.8-runtimes-dev.zip
+  CLIBS_RELEASE: clibs-v2026.11-1
+  CLIBS_ZIP: clibs-2026.11-dev.zip
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+          - platform: macos-aarch64
+            runner: macos-26
+          - platform: macos-x86_64
+            runner: macos-26
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 360
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Free disk space
+        if: runner.os == 'Linux'
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: node-src-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('node/sources.txt', 'runtimes/sources.txt') }}
+      - name: Rust
+        run: |
+          set -eu
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          rustup default "$RUST_VERSION"
+          # macOS x86-64 is cross-built on Apple silicon.
+          if [ "${{ matrix.platform }}" = macos-x86_64 ]; then rustup target add x86_64-apple-darwin; fi
+      - name: The runtimes and clibs slices
+        run: |
+          set -eu
+          mkdir -p ../slices/runtimes ../slices/clibs
+          gh release download "$RUNTIMES_RELEASE" -R "$GITHUB_REPOSITORY" -p "$RUNTIMES_ZIP" -D ../slices
+          gh release download "$CLIBS_RELEASE" -R "$GITHUB_REPOSITORY" -p "$CLIBS_ZIP" -D ../slices
+          unzip -q "../slices/$RUNTIMES_ZIP" -d ../slices/runtimes
+          unzip -q "../slices/$CLIBS_ZIP" -d ../slices/clibs
+      - name: Node for ${{ matrix.platform }}
+        run: |
+          set -eu
+          sh node/build.sh "${{ matrix.platform }}" "../slices/clibs/clibs/${{ matrix.platform }}" ../slices/runtimes out
+          tar -czf node.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-${{ matrix.platform }}
+          path: node.tar.gz
+          retention-days: 7
+
+  pack:
+    needs: [build]
+    runs-on: ubuntu-24.04
+    env:
+      REVISION: ${{ inputs.revision || '0' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install "jaclang==${JACLANG_VERSION}"
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble and check
+        run: |
+          set -eu
+          mkdir -p tree
+          for a in artifacts/*/*.tar.gz; do tar -xzf "$a" -C tree; done
+          for p in linux-x86_64 linux-aarch64 macos-aarch64 macos-x86_64; do
+            for f in build.json gen/node_javascript.cc gen/node_snapshot.cc lib/libv8_base_without_compiler.a; do
+              test -f "tree/node/$p/$f" || { echo "::error::no node/$p/$f"; exit 1; }
+            done
+          done
+          test -f tree/node/npm/bin/npm-cli.js
+          {
+            echo "# Built from these pinned inputs (llvm-slice node/sources.txt; the LLVM"
+            echo "# release in runtimes/sources.txt), with the runtimes slice $RUNTIMES_RELEASE"
+            echo "# and the clibs slice $CLIBS_RELEASE, and Rust $RUST_VERSION:"
+            grep -v '^#' node/sources.txt | grep -v '^$'
+          } > tree/node/SOURCES.txt
+          du -sh tree/node/*
+      - name: Pack the slice
+        id: pack
+        run: |
+          set -eu
+          rev="$REVISION"
+          [ "$rev" = 0 ] && rev=1
+          jac run scripts/pack_slice.jac --kind node --tree tree --version "$NODE_VERSION" --revision "$rev" --out-dir dist | tee record.json
+          echo "revision=$rev" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-slice
+          path: |
+            dist/*
+            record.json
+          retention-days: 7
+      - name: Publish node-v${{ env.NODE_VERSION }}-${{ steps.pack.outputs.revision }}
+        if: github.event_name == 'workflow_dispatch' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="node-v$NODE_VERSION-${{ steps.pack.outputs.revision }}"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::$tag exists; publish a new revision instead of replacing one consumers pin"
+            exit 1
+          fi
+          gh release create "$tag" --latest=false \
+            --title "Node $NODE_VERSION slice (revision ${{ steps.pack.outputs.revision }})" \
+            --notes "What a toolchain compiling Node $NODE_VERSION's own C++ and libuv needs besides them: V8, ICU and Node's other dependencies prebuilt with the runtimes slice's libc++, their headers, what Node's build generates, how its C++ is compiled, and npm (node/README.md). Pin node-$NODE_VERSION-manifest.json by its sha256 (record.json)." \
+            dist/* record.json

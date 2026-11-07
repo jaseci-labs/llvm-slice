@@ -1,0 +1,7 @@
+# Every upstream input of the Node slice, pinned: <file> <sha256> <url>.
+# fetch() in runtimes/lib.sh downloads a file once into $SRC_CACHE and checks
+# it here (node/build.sh searches this list, then runtimes/sources.txt).
+
+# Node, as nodejs.org publishes it (its SHASUMS256.txt): its C++, V8, ICU and
+# the dependencies Node keeps in its tree, its JavaScript and npm.
+node-v26.13.0.tar.xz 263f639ecfa7a17b49438d76cdbf9aff73179e3c7cb789da69b900718427fa2e https://nodejs.org/dist/v26.13.0/node-v26.13.0.tar.xz
