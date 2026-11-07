@@ -13,8 +13,11 @@
 #   node/build.sh <platform> <clibs> <runtimes> <out>
 #
 #   <platform>  linux-x86_64, linux-aarch64 (natively, on Linux), macos-aarch64
-#               or macos-x86_64 (on an Apple silicon Mac; x86-64's build tools
-#               run under Rosetta)
+#               or macos-x86_64 (on an Apple silicon Mac: every tool the build
+#               compiles, compiled for x86-64 as its host compiler is, runs
+#               under Rosetta, so configure sees no cross build and keeps the
+#               startup snapshot and code cache, which a cross build leaves
+#               out)
 #   <clibs>     the clibs slice's tree for <platform> (clibs/<platform>/ of
 #               clibs-v<set>-<revision>)
 #   <runtimes>  the runtimes slice's tree (runtimes-v<llvm>-<revision>)
@@ -52,7 +55,6 @@ case "$platform" in
         dest_cpu="$arch"
         [ "$arch" = aarch64 ] && dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
-        cross=""
         ;;
     macos-aarch64 | macos-x86_64)
         arch="${platform#macos-}"
@@ -65,8 +67,6 @@ case "$platform" in
         cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a"
         dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
-        cross=""
-        [ "$(uname -m)" = "$march" ] || cross="--cross-compiling"
         ;;
     *) die "no Node slice for '$platform'" ;;
 esac
@@ -81,8 +81,16 @@ EOF
 cat > "$bin/c++" << EOF
 #!/bin/sh
 # libc++'s headers, then its configuration for the target (__config_site), as
-# neojac's C++ compiles; linked with the runtimes' libc++, never the system's.
-exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/include" -isystem "$rt/targets/$tdir/include" $cflags -fuse-ld=lld -nostdlib++ "\$@" $cxx_runtime -lpthread
+# neojac's C++ compiles; a link (no -c, -E, -S or -M among the arguments)
+# takes the runtimes' libc++, never the system's.
+link=1
+for a in "\$@"; do
+    case "\$a" in -c | -E | -S | -M | -MM) link=0 ;; esac
+done
+if [ "\$link" = 1 ]; then
+    exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/include" -isystem "$rt/targets/$tdir/include" $cflags -fuse-ld=lld -nostdlib++ "\$@" $cxx_runtime -lpthread
+fi
+exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/include" -isystem "$rt/targets/$tdir/include" $cflags "\$@"
 EOF
 chmod +x "$bin/cc" "$bin/c++"
 export CC="$bin/cc" CXX="$bin/c++" CC_host="$bin/cc" CXX_host="$bin/c++" LINK="$bin/c++"
@@ -94,7 +102,7 @@ cargo --version >&2 || die "no Rust toolchain: Node's Temporal needs cargo"
 inc="$clibs/include"
 lib="$clibs/lib"
 # shellcheck disable=SC2086
-(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" $cross \
+(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" \
     --with-intl=full-icu --without-lief \
     --shared-openssl --shared-openssl-includes="$inc" --shared-openssl-libpath="$lib" \
     --shared-zlib --shared-zlib-includes="$inc" --shared-zlib-libpath="$lib" \

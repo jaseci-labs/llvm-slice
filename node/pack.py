@@ -32,8 +32,7 @@ each target compiles and links). Writes, under <out>/node/:
                            "archives", of which "whole_archives" are linked
                            whole (as Node's own link does: every V8 API
                            function, for the addons it loads), the system
-                           "libs" and the "gen_sources" compiled with Node's
-                           C++
+                           "libs" and, on macOS, "frameworks"
   npm/                     npm, as Node's install lays it out
                            (lib/node_modules/npm), the same on every platform
   LICENSE                  Node's license, which covers its dependencies'
@@ -69,8 +68,15 @@ def mk_list(text, name):
 
 def whole_archive(thin, out):
     """`thin`, an archive gyp's make writes thin (naming its members' objects
-    where they are), as an ordinary one holding them, at `out`. AR names the
-    archiver (the LLVM release's llvm-ar)."""
+    where they are), as an ordinary one holding them, at `out`; an ordinary
+    archive (cargo's) as it is. AR names the archiver (the LLVM release's
+    llvm-ar)."""
+    with open(thin, "rb") as f:
+        magic = f.read(8)
+    if magic == b"!<arch>\n":
+        # Already an ordinary archive (cargo's).
+        shutil.copyfile(thin, out)
+        return
     ar = os.environ.get("AR", "ar").split()
     listed = subprocess.run(ar + ["t", thin], capture_output=True, text=True, check=True).stdout.split()
     base = os.path.dirname(thin)
@@ -161,7 +167,9 @@ def main():
     for w in m.group(1).split():
         if not w.endswith(".a"):
             continue
-        path = w.replace("$(obj)", os.path.join(build, "obj"))
+        # gyp's make names a static library by $(obj) (Linux) or by the
+        # product directory, $(builddir) (macOS).
+        path = w.replace("$(obj)", os.path.join(build, "obj")).replace("$(builddir)", build)
         name = os.path.basename(path)
         if name in NOT_SLICE:
             continue
@@ -177,9 +185,31 @@ def main():
             inside = True
         elif w == "-Wl,--no-whole-archive":
             inside = False
-        elif inside and os.path.basename(w) in archives:
+        elif w.startswith("-Wl,-force_load,"):
+            # macOS: one archive linked whole.
+            name = os.path.basename(w[len("-Wl,-force_load,") :])
+            if name in archives and name not in whole:
+                whole.append(name)
+        elif inside and os.path.basename(w) in archives and os.path.basename(w) not in whole:
             whole.append(os.path.basename(w))
     libs = [w[2:] for w in mk_list(node_mk, "LIBS") if w.startswith("-l")]
+    # Static libraries `node` links by path in LIBS: the Rust crates V8's
+    # Temporal is built on (libnode_crates.a, cargo's).
+    for w in mk_list(node_mk, "LIBS"):
+        if w.endswith(".a"):
+            path = os.path.normpath(w.replace("$(obj)", os.path.join(build, "obj")).replace("$(builddir)", build))
+            name = os.path.basename(path)
+            if not os.path.isfile(path):
+                die(f"node links {path}, which is not there")
+            if name not in archives:
+                whole_archive(path, os.path.join(dest, "lib", name))
+                archives.append(name)
+    # macOS: the frameworks Node's link names (-framework <name>).
+    frameworks = []
+    words = mk_list(node_mk, "LIBS") + flags
+    for k, w in enumerate(words):
+        if w == "-framework" and k + 1 < len(words) and words[k + 1] not in frameworks:
+            frameworks.append(words[k + 1])
 
     # The headers Node's own C++ reads outside its tree and libuv, by the
     # include directory each is found through; the generated sources and
@@ -257,6 +287,7 @@ def main():
         "archives": archives,
         "whole_archives": whole,
         "libs": libs,
+        "frameworks": frameworks,
     }
     facts["node"]["reads"] = sorted(reads["node"])
     facts["uv"]["reads"] = sorted(reads["uv"])
