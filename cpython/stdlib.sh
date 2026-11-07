@@ -2,12 +2,13 @@
 # CPython's standard library, as the interpreter a toolchain builds from
 # CPython's C ships it, and the frozen modules that C compiles in, which a
 # native build of the release writes (Programs/_freeze_module): CPython's own
-# configure and make, with the host's C compiler.
+# configure and make, with the host's C compiler. And typeshed's stubs of
+# that standard library.
 #
 #   cpython/stdlib.sh <out>
 #
-# Writes <out>/lib/python3.15/ and <out>/frozen/Python/frozen_modules/
-# (cpython/stdlib.py says what each holds).
+# Writes <out>/lib/python3.15/, <out>/frozen/Python/frozen_modules/ and
+# <out>/typeshed/ (cpython/stdlib.py says what each holds).
 CPYTHON_DIR="$(cd "$(dirname "$0")" && pwd)"
 RUNTIMES_DIR="$CPYTHON_DIR/../runtimes"
 SOURCES="$CPYTHON_DIR/sources.txt $RUNTIMES_DIR/sources.txt"
@@ -25,4 +26,6 @@ targets="$(grep -o '^Python/frozen_modules/[^:]*\.h' "$b/Makefile" | sort -u)"
 [ -n "$targets" ] || die "CPython's Makefile names no frozen modules"
 # shellcheck disable=SC2086
 make -s -C "$b" -j"$JOBS" $targets
-python3 -I "$CPYTHON_DIR/stdlib.py" "$src" "$b" "$out"
+ts="$WORK/typeshed"
+unpack typeshed-13ffe24f8b9d0069a7a45c42eed3f5513e1472a1.tar.gz "$ts"
+python3 -I "$CPYTHON_DIR/stdlib.py" "$src" "$b" "$ts" "$out"

@@ -3,7 +3,7 @@
 What a toolchain that compiles CPython's C itself needs from the rest of a
 CPython build: the C libraries CPython's standard library is built on, for
 every platform, and the parts of CPython's release that are not C, the
-standard library and the frozen modules. It is published as release
+standard library, the frozen modules and typeshed's stubs of the standard library. It is published as release
 `cpython-v<version>-<revision>`: `cpython-<version>-dev.zip`, a zip in the dev
 slices' format (one DEFLATE member per file and a central directory, so a
 client range-fetches what it needs), and `cpython-<version>-manifest.json`,
@@ -18,6 +18,7 @@ beside the runtimes slice's.
 | `clibs/<platform>/licenses/<library>/` | their licenses |
 | `cpython/lib/python3.15/` | the standard library (`Lib/`), as an installed interpreter lays it out, less the test suite, IDLE and Tk (`tkinter`, `turtle`, `turtledemo`) |
 | `cpython/frozen/Python/frozen_modules/` | the frozen modules a native build writes, where CPython's C includes them from |
+| `cpython/typeshed/{LICENSE,stdlib/}` | typeshed's stubs of the standard library, and its `VERSIONS`: those of the modules the standard library above has (in 3.15 by `VERSIONS`, and not Tk's), for a checker's types |
 | `cpython/SOURCES.txt` | every pinned input |
 
 Every library is static, and every symbol it defines is hidden: it is
@@ -48,6 +49,7 @@ system.
 | libffi | `clibs.sh` | its configure |
 | OpenSSL | `clibs.sh` | its Configure: libcrypto and libssl, without assembly, loadable modules, engines or the legacy provider |
 | the standard library and frozen modules | `stdlib.sh`, `stdlib.py` | CPython's configure and make of the frozen modules alone (`Programs/_freeze_module` and the interpreter it bootstraps), natively with the host's compiler |
+| typeshed's stubs | `stdlib.sh`, `stdlib.py` | typeshed's `stdlib/` at a pinned commit, unchanged, less the stubs of modules the standard library doesn't have |
 
 `.github/workflows/build-cpython.yml` runs it all, and `scripts/pack_slice.jac`
 packs the tree.
