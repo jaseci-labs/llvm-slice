@@ -135,7 +135,7 @@ jobs:
             BASE="$RUNNER_TEMP"
           fi
           echo "WORK=$BASE" >> "$GITHUB_ENV"
-          for d in llvm-src llvm-build llvm-install llvm-out zig-wrap; do
+          for d in llvm-src llvm-build llvm-install llvm-out zig-wrap host-work host-src host-libs; do
             sudo mkdir -p "$BASE/$d"
             sudo chown "$(id -u):$(id -g)" "$BASE/$d"
           done
