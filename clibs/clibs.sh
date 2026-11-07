@@ -1,6 +1,7 @@
 #!/bin/sh
-# The C libraries CPython's standard library is built on, for one platform:
-# zlib, bzip2, xz's liblzma, Zstandard, SQLite, libffi and OpenSSL, each a
+# The C libraries the runtimes neojac compiles from their C are built on
+# (CPython's standard library, Node), for one platform: zlib, bzip2, xz's
+# liblzma, Zstandard, SQLite, libffi and OpenSSL, each a
 # static library built by its own build system (SQLite's amalgamation is one
 # file, compiled as SQLite's documentation says). Every object is compiled
 # -fvisibility=hidden and no library's API asks for default visibility, so a
@@ -8,11 +9,11 @@
 # --export-dynamic) exports none of theirs, and a wheel bundling its own copy
 # of one never binds to these. check_hidden.py proves it.
 #
-#   cpython/clibs.sh <platform> <out>
+#   clibs/clibs.sh <platform> <out>
 #
 #   linux-x86_64, linux-aarch64   natively, in a manylinux_2_28 container: its
-#                                 GCC, against glibc 2.28 (neojac's CPython
-#                                 links against 2.29); PYTHON names a Python 3
+#                                 GCC, against glibc 2.28 (neojac's programs
+#                                 link against 2.29); PYTHON names a Python 3
 #   macos-aarch64, macos-x86_64   on macOS, the LLVM release's Clang and the
 #                                 runner's SDK, for macOS 14.0 (neojac's floor)
 #   windows-x86_64                on Linux, the LLVM release's Clang and the
@@ -21,9 +22,9 @@
 #
 # Writes <out>/include/ (every library's public headers), <out>/lib/lib*.a and
 # <out>/licenses/<library>/.
-CPYTHON_DIR="$(cd "$(dirname "$0")" && pwd)"
-RUNTIMES_DIR="$CPYTHON_DIR/../runtimes"
-SOURCES="$CPYTHON_DIR/sources.txt $RUNTIMES_DIR/sources.txt"
+CLIBS_DIR="$(cd "$(dirname "$0")" && pwd)"
+RUNTIMES_DIR="$CLIBS_DIR/../runtimes"
+SOURCES="$CLIBS_DIR/sources.txt $RUNTIMES_DIR/sources.txt"
 . "$RUNTIMES_DIR/lib.sh"
 platform="$1"
 out="$(mkdir -p "$2" && cd "$2" && pwd)"
@@ -141,15 +142,19 @@ CPPFLAGS="-DZSTDLIB_VISIBLE= -DZSTDERRORLIB_VISIBLE= -DZDICTLIB_VISIBLE=" \
 make -s -C "$src/lib" install-static install-includes PREFIX="$out" LIBDIR="$out/lib" INCLUDEDIR="$out/include"
 licenses zstd "$src/LICENSE"
 
-# SQLite: its amalgamation, with what python.org's interpreters enable.
+# SQLite: its amalgamation, with what python.org's interpreters enable and
+# what Node's node:sqlite does (deps/sqlite/sqlite.gyp: sessions and their
+# pre-update hook, RBU, percentile functions, no memory statistics).
 src="$WORK/sqlite"
-unpack sqlite-autoconf-3530400.tar.gz "$src"
+unpack sqlite-autoconf-3540000.tar.gz "$src"
 # shellcheck disable=SC2086
 $CC $CFLAGS -c "$src/sqlite3.c" -o "$WORK/sqlite3.o" \
     -DSQLITE_THREADSAFE=1 -DSQLITE_ENABLE_FTS3 -DSQLITE_ENABLE_FTS3_PARENTHESIS \
     -DSQLITE_ENABLE_FTS4 -DSQLITE_ENABLE_FTS5 -DSQLITE_ENABLE_RTREE \
     -DSQLITE_ENABLE_GEOPOLY -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_DBSTAT_VTAB \
-    -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_OMIT_DEPRECATED
+    -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_OMIT_DEPRECATED \
+    -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_RBU \
+    -DSQLITE_ENABLE_PERCENTILE -DSQLITE_DEFAULT_MEMSTATUS=0
 rm -f "$out/lib/libsqlite3.a"
 $AR rcs "$out/lib/libsqlite3.a" "$WORK/sqlite3.o"
 cp "$src/sqlite3.h" "$src/sqlite3ext.h" "$out/include/"
@@ -158,7 +163,7 @@ licenses sqlite "$src/sqlite3.h"
 
 # libffi: its configure.
 src="$WORK/libffi"
-unpack libffi-3.4.8.tar.gz "$src"
+unpack libffi-3.8.0.tar.gz "$src"
 b="$WORK/libffi-build"
 rm -rf "$b" && mkdir -p "$b"
 (cd "$b" && "$src/configure" -q ${host:+--host="$host"} --prefix="$out" \
@@ -171,7 +176,7 @@ licenses libffi "$src/LICENSE"
 # ciphers and digests in portable C) and without loadable modules, engines or
 # the legacy provider. Linux and macOS read certificates from /etc/ssl.
 src="$WORK/openssl"
-unpack openssl-3.5.8.tar.gz "$src"
+unpack openssl-3.5.9.tar.gz "$src"
 dir="--openssldir=/etc/ssl"
 [ "$platform" = windows-x86_64 ] && dir=""
 # The flags go on Configure's command line, which adds them to the target's
@@ -192,6 +197,6 @@ done
 extra="$(ls "$out/lib" | grep -v -E '^lib(z|bz2|lzma|zstd|sqlite3|ffi|crypto|ssl)\.a$' || true)"
 [ -z "$extra" ] || die "unexpected in lib/: $extra"
 if [ -n "$check" ]; then
-    "$PYTHON" -I "$CPYTHON_DIR/check_hidden.py" "$check" "$out"/lib/*.a
+    "$PYTHON" -I "$CLIBS_DIR/check_hidden.py" "$check" "$out"/lib/*.a
 fi
 log "$platform: $(du -sh "$out" | cut -f1)"

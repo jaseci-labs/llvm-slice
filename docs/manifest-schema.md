@@ -132,7 +132,7 @@ standalone `cpython-<version>-manifest.json`, in the runtimes slice's form:
   "zip_asset": "cpython-3.15.2-dev.zip",
   "zip_sha256": "…",                 // "" in the embedded copy
   "files": {
-    "clibs/linux-x86_64/lib/libssl.a": { "size": 2041958, "sha256": "…" }
+    "cpython/lib/python3.15/os.py": { "size": 43120, "sha256": "…" }
     // … one entry for every member but manifest.json
   }
 }
@@ -140,25 +140,14 @@ standalone `cpython-<version>-manifest.json`, in the runtimes slice's form:
 
 As with the runtimes, a revision is never replaced.
 
-## The Rust slice's manifest
+## The clibs and Node slices' manifests
 
-Release `rust-v<version>-<revision>` ships `rust-<version>-dev.zip` (the tree
-`rust/README.md` describes, plus an embedded `manifest.json`) and the
-standalone `rust-<version>-manifest.json`, in the runtimes slice's form:
+The same form, for the other slices that `scripts/pack_slice.jac` packs:
 
-```jsonc
-{
-  "schema_version": 1,
-  "kind": "rust",
-  "rust_version": "1.99.0",
-  "revision": 1,
-  "zip_asset": "rust-1.99.0-dev.zip",
-  "zip_sha256": "…",                 // "" in the embedded copy
-  "files": {
-    "rust/target/wasm32-wasip1/lib/libstd-….rlib": { "size": 4186210, "sha256": "…" }
-    // … one entry for every member but manifest.json
-  }
-}
-```
+| Release | Assets | `kind` | Version field |
+|---|---|---|---|
+| `clibs-v<set>-<revision>` | `clibs-<set>-dev.zip`, `clibs-<set>-manifest.json` (`clibs/README.md`) | `clibs` | `clibs_version`: the set of library releases, named by when it was chosen (`2026.11`) |
+| `node-v<version>-<revision>` | `node-<version>-dev.zip`, `node-<version>-manifest.json` (`node/README.md`) | `node` | `node_version` |
+| `rust-v<version>-<revision>` | `rust-<version>-dev.zip`, `rust-<version>-manifest.json` (`rust/README.md`) | `rust` | `rust_version` |
 
 As with the runtimes, a revision is never replaced.
