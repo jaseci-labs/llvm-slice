@@ -11,9 +11,9 @@ name: Build Rust slice
 #   rust/neollvm-imports.txt
 #   rust/SOURCES.txt
 #
-# Everything builds on linux-x86_64: each host's job builds the compiler
-# that runs here, then cross-compiles that host's tools; one job builds every
-# target's standard library.
+# Each platform's job builds with the platform's own C toolchain, as Rust's
+# releases do: Linux in manylinux2014 (GCC, glibc 2.17) natively on each
+# architecture, macOS with Xcode, Windows on Linux with llvm-mingw.
 #
 # Pull requests that touch the build run it without publishing.
 
@@ -49,19 +49,29 @@ env:
 
 jobs:
   build:
+    # Each platform's job builds its Rust host's tools, and the standard
+    # library of the targets its toolchain builds (rust/build.sh): Linux in
+    # manylinux2014 (GCC, glibc 2.17), natively on each architecture; macOS
+    # natively with Xcode; Windows on Linux with llvm-mingw.
     strategy:
       fail-fast: false
       matrix:
-        part:
-          - host x86_64-unknown-linux-gnu
-          - host aarch64-unknown-linux-gnu
-          - host aarch64-apple-darwin
-          - host x86_64-pc-windows-gnullvm
-          - std
-    runs-on: ubuntu-24.04
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-24.04
+            image: quay.io/pypa/manylinux2014_x86_64@sha256:62eeff30ef134a85ec0f97109e008a319b0315ca5e8a6d754ee771556c02622a
+          - platform: linux-aarch64
+            runner: ubuntu-24.04-arm
+            image: quay.io/pypa/manylinux2014_aarch64@sha256:101d2292840109c9d329fcfcd7b89b46f59e19ca23cbfdcf059fb389994665fc
+          - platform: macos-aarch64
+            runner: macos-26
+          - platform: windows-x86_64
+            runner: ubuntu-24.04
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     steps:
       - name: Free disk space
+        if: runner.os == 'Linux'
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android \
             /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
@@ -70,6 +80,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: mlugg/setup-zig@v2
+        if: runner.os == 'Linux'
         with:
           version: ${{ env.ZIG_VERSION }}
 
@@ -77,33 +88,42 @@ jobs:
       - name: Work directories
         run: |
           set -eu
+          base="$RUNNER_TEMP/rust"
           if [ -d /mnt ] && [ "$(df -Pm /mnt | awk 'NR==2{print $4}')" -ge 40960 ]; then
             base=/mnt/rust
-          else
-            base="$RUNNER_TEMP/rust"
           fi
           sudo mkdir -p "$base"
           sudo chown "$(id -u):$(id -g)" "$base"
+          echo "BASE=$base" >> "$GITHUB_ENV"
           echo "WORK=$base/work" >> "$GITHUB_ENV"
           echo "SRC_CACHE=$base/src" >> "$GITHUB_ENV"
-          echo "PART_NAME=$(echo '${{ matrix.part }}' | tr ' ' '-')" >> "$GITHUB_ENV"
           df -h "$base"
 
       - uses: actions/cache@v4
         with:
           path: ${{ env.SRC_CACHE }}
-          key: rust-src-${{ hashFiles('rust/sources.txt', 'runtimes/sources.txt') }}
+          key: rust-src-${{ matrix.platform }}-${{ hashFiles('rust/sources.txt', 'runtimes/sources.txt') }}
 
-      - name: Build ${{ matrix.part }}
+      - name: Build ${{ matrix.platform }}
         run: |
           set -eu
-          sh rust/build.sh ${{ matrix.part }} out
+          if [ -n "${{ matrix.image }}" ]; then
+            # manylinux2014's own GCC and glibc 2.17; Zig from the runner.
+            # OpenSSL's Configure (cargo's) needs IPC::Cmd.
+            zig="$(dirname "$(command -v zig)")"
+            docker run --rm -v "$PWD:/w" -v "$BASE:$BASE" -v "$zig:/zig" -w /w \
+              -e WORK -e SRC_CACHE -e "JOBS=$(nproc)" "${{ matrix.image }}" sh -c \
+              "yum install -y -q perl-IPC-Cmd > /dev/null && PATH=/zig:/opt/python/cp312-cp312/bin:\$PATH sh rust/build.sh ${{ matrix.platform }} /w/out"
+            sudo chown -R "$(id -u):$(id -g)" out "$BASE"
+          else
+            sh rust/build.sh ${{ matrix.platform }} out
+          fi
           tar -cf part.tar -C out .
-          df -h "$WORK"
+          du -sh out/rust/*/*
 
       - uses: actions/upload-artifact@v4
         with:
-          name: rust-${{ env.PART_NAME }}
+          name: rust-${{ matrix.platform }}
           path: part.tar
           retention-days: 7
 

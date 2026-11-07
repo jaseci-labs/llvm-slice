@@ -6,3 +6,7 @@
 # vendored. Its bootstrap downloads the compiler that builds it (the beta its
 # src/stage0 pins, each file by sha256).
 rustc-1.99.0-src.tar.xz cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036 https://static.rust-lang.org/dist/rustc-1.99.0-src.tar.xz
+
+# llvm-mingw: Clang, LLD, mingw-w64 with the Universal CRT, libunwind and
+# libc++, which build and link the Windows host's tools (gnullvm) on Linux.
+llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz 919380403de87dca3c581c2053230cd298af5e891286628ba0613b7fed370926 https://github.com/mstorsjo/llvm-mingw/releases/download/20261104/llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz

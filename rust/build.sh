@@ -1,25 +1,35 @@
 #!/bin/sh
 # rustc and its tools, and the standard library, built against the LLVM
-# library rust/neollvm.sh makes (neojac's libneollvm at run time), on
-# linux-x86_64, for every host and target from there.
+# library rust/neollvm.sh makes (neojac's libneollvm at run time), each
+# platform's with the platform's own C toolchain, as Rust's releases are.
 #
-#   rust/build.sh host <host> <out>   rustc (with rustdoc), cargo, clippy and
-#       rustfmt for <host>, under <out>/rust/host/<host>/: one of
-#       x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu,
-#       aarch64-apple-darwin, x86_64-pc-windows-gnullvm
-#   rust/build.sh std <out>           the standard library of every target,
-#       under <out>/rust/target/<target>/ (what a sysroot's
-#       lib/rustlib/<target>/ holds)
+#   rust/build.sh <platform> <out>
 #
-# Every target's C compiler and linker is Zig's cc, at the target's floor:
-# glibc 2.17, musl, macOS (with the runtimes slice's framework stubs), the
-# Universal CRT with mingw-w64 and libunwind (rustc's gnullvm targets), WASI.
-# The compiler runtime is compiler-rt's builtins as the runtimes slice ships
-# them; the standard library's C (compiler-rt's profiling runtime) is LLVM
-# 22.1.8's, as LLVM itself is: rustc's source tree carries Rust's own LLVM,
-# which this build replaces with the upstream release's compiler-rt and
-# libunwind. Nothing is taken from the machine that builds: no system library
-# (pkg-config is disabled), no C toolchain but Zig.
+# writes rustc (with rustdoc), cargo, clippy and rustfmt for the platform's
+# Rust host under <out>/rust/host/<host>/, and the standard library of the
+# targets its toolchain builds under <out>/rust/target/<target>/ (what a
+# sysroot's lib/rustlib/<target>/ holds):
+#
+#   linux-x86_64    run in manylinux2014 (CentOS 7: GCC, glibc 2.17):
+#                   x86_64-unknown-linux-gnu; the standard library of it,
+#                   x86_64-unknown-linux-musl and wasm32-wasip1
+#   linux-aarch64   the same on aarch64: aarch64-unknown-linux-gnu; the
+#                   standard library of it and aarch64-unknown-linux-musl
+#   macos-aarch64   on macOS, with Xcode's Clang and SDK, for macOS 14.0:
+#                   aarch64-apple-darwin; the standard library of it and
+#                   x86_64-apple-darwin
+#   windows-x86_64  on Linux, with llvm-mingw (Clang, LLD, mingw-w64, the
+#                   Universal CRT, libunwind): x86_64-pc-windows-gnullvm and
+#                   its standard library
+#
+# The musl and WASI standard libraries' C (no program links there) compiles
+# with Zig's cc. Every target's compiler runtime is compiler-rt's builtins as
+# the runtimes slice ships them, musl is the runtimes slice's, and wasi-libc
+# wasi-sdk's sysroot. The standard library's C (compiler-rt's profiling
+# runtime) is LLVM 22.1.8's, as LLVM itself is: rustc's source tree carries
+# Rust's own LLVM, which this build replaces with the upstream release's
+# compiler-rt and libunwind. No system library reaches a build (pkg-config is
+# disabled).
 #
 # rustc's source is patched once (rustc-llvm-wrapper-in-llvm.patch): it links
 # the LLVM library alone, which carries rustc's LLVM wrapper itself.
@@ -28,34 +38,34 @@ RUNTIMES_DIR="$(cd "$(dirname "$0")/../runtimes" && pwd)"
 RUST_DIR="$(cd "$RUNTIMES_DIR/../rust" && pwd)"
 SOURCES="$RUNTIMES_DIR/sources.txt $RUST_DIR/sources.txt"
 RUST_VERSION=1.99.0
-BUILD=x86_64-unknown-linux-gnu
-HOSTS="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-gnullvm"
-TARGETS="x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu x86_64-unknown-linux-musl aarch64-unknown-linux-musl
-    x86_64-apple-darwin aarch64-apple-darwin x86_64-pc-windows-gnullvm wasm32-wasip1"
 
-mode="$1"
-case "$mode" in
-    host) host="$2"; out="$3" ;;
-    std) out="$2" ;;
-    *) die "usage: rust/build.sh host <host> <out> | std <out>" ;;
+platform="$1"
+out="$(mkdir -p "$2" && cd "$2" && pwd)"
+case "$platform" in
+    linux-x86_64)
+        build=x86_64-unknown-linux-gnu
+        host=$build
+        targets="x86_64-unknown-linux-gnu x86_64-unknown-linux-musl wasm32-wasip1"
+        ;;
+    linux-aarch64)
+        build=aarch64-unknown-linux-gnu
+        host=$build
+        targets="aarch64-unknown-linux-gnu aarch64-unknown-linux-musl"
+        ;;
+    macos-aarch64)
+        build=aarch64-apple-darwin
+        host=$build
+        targets="aarch64-apple-darwin x86_64-apple-darwin"
+        # neojac's macOS floor, which its runtime and libneollvm are built for.
+        export MACOSX_DEPLOYMENT_TARGET=14.0
+        ;;
+    windows-x86_64)
+        build=x86_64-unknown-linux-gnu
+        host=x86_64-pc-windows-gnullvm
+        targets=$host
+        ;;
+    *) die "usage: rust/build.sh linux-x86_64|linux-aarch64|macos-aarch64|windows-x86_64 <out>" ;;
 esac
-case " $HOSTS " in *" ${host:-$BUILD} "*) ;; *) die "no host ${host:-}; one of $HOSTS" ;; esac
-mkdir -p "$out"
-out="$(cd "$out" && pwd)"
-
-# zig_target <rust target>: the target Zig's cc compiles and links for.
-zig_target() {
-    case "$1" in
-        x86_64-unknown-linux-gnu) echo x86_64-linux-gnu.2.17 ;;
-        aarch64-unknown-linux-gnu) echo aarch64-linux-gnu.2.17 ;;
-        x86_64-unknown-linux-musl) echo x86_64-linux-musl ;;
-        aarch64-unknown-linux-musl) echo aarch64-linux-musl ;;
-        x86_64-apple-darwin) echo x86_64-macos ;;
-        aarch64-apple-darwin) echo aarch64-macos ;;
-        x86_64-pc-windows-gnullvm) echo x86_64-windows-gnu ;;
-        wasm32-wasip1) echo wasm32-wasi ;;
-    esac
-}
 
 # runtimes_target <rust target>: the runtimes slice's directory for it.
 runtimes_target() {
@@ -84,14 +94,8 @@ if [ ! -f "$src/.prepared" ]; then
     touch "$src/.prepared"
 fi
 
-# The LLVM library, and every host's library to link against.
-neollvm="$WORK/neollvm-out"
-if [ ! -f "$neollvm/exports.txt" ]; then
-    sh "$RUST_DIR/neollvm.sh" "$src" "$neollvm"
-fi
-
-# The runtimes slice: every target's compiler-rt builtins and musl, and the
-# macOS frameworks' stubs; and wasi-libc's sysroot.
+# The runtimes slice (every target's compiler-rt builtins, musl), and
+# wasi-libc's sysroot.
 runtimes="$WORK/runtimes"
 if [ ! -f "$runtimes/SOURCES.txt" ]; then
     rm -rf "$runtimes"
@@ -100,49 +104,80 @@ if [ ! -f "$runtimes/SOURCES.txt" ]; then
     (cd "$runtimes" && unzip -q "$zip")
 fi
 wasi="$WORK/wasi-sysroot"
-if [ ! -f "$wasi/lib/wasm32-wasip1/crt1-command.o" ]; then
-    unpack wasi-sysroot-34.0.tar.gz "$wasi"
-fi
-frameworks="$runtimes/libc/darwin/System/Library/Frameworks"
+case " $targets " in
+    *" wasm32-wasip1 "*)
+        [ -f "$wasi/lib/wasm32-wasip1/crt1-command.o" ] || unpack wasi-sysroot-34.0.tar.gz "$wasi"
+        ;;
+esac
 
-# Every target's tools, by one path each, as rustc's bootstrap and the cc
-# crate run them. The cc crate tells a Clang its target with --target=, and
-# rustc tells a macOS linker with -arch: Zig's cc has its target from -target
-# already, so the wrappers leave both out.
+# The LLVM library of the machine that builds (which runs the compiler the
+# build makes), and of the host (to link against), when that is another.
+neollvm="$WORK/neollvm"
+case "$platform" in
+    windows-x86_64) sh "$RUST_DIR/neollvm.sh" linux-x86_64 "$src" "$neollvm/$build" ;;
+    *) sh "$RUST_DIR/neollvm.sh" "$platform" "$src" "$neollvm/$build" ;;
+esac
+if [ "$platform" = windows-x86_64 ]; then
+    mingw="$WORK/llvm-mingw"
+    [ -x "$mingw/bin/x86_64-w64-mingw32-clang" ] || unpack llvm-mingw-20261104-ucrt-ubuntu-22.04-x86_64.tar.xz "$mingw"
+    # libneollvm.dll's import library: the functions the library exports.
+    mkdir -p "$neollvm/$host"
+    { echo "LIBRARY libneollvm.dll"; echo "EXPORTS"; sed 's/.*/    &/' "$neollvm/$build/exports.txt"; } \
+        > "$neollvm/$host/neollvm.def"
+    "$mingw/bin/llvm-dlltool" -m i386:x86-64 -d "$neollvm/$host/neollvm.def" -D libneollvm.dll \
+        -l "$neollvm/$host/libneollvm.dll.a"
+fi
+
+# Each target's tools, by one path each, as rustc's bootstrap and the cc
+# crate run them.
 tools="$WORK/tools"
 rm -rf "$tools"
 mkdir -p "$tools"
-printf '#!/bin/sh\nexec zig ar "$@"\n' > "$tools/ar"
-printf '#!/bin/sh\nexec zig ranlib "$@"\n' > "$tools/ranlib"
-for t in $TARGETS; do
-    extra=""
-    case "$t" in
-        *-apple-darwin) extra="-F$frameworks -iframework$frameworks" ;;
-    esac
+# zig_cc <rust target> <zig target>: Zig's cc and c++ for a target whose C
+# only compiles here. The cc crate tells a Clang its target with --target=;
+# Zig's cc has it from -target already.
+zig_cc() {
     for lang in cc c++; do
-        cat > "$tools/$t-$lang" <<EOF
+        cat > "$tools/$1-$lang" <<EOF
 #!/bin/sh
-skip=""
 for a do
     shift
-    if [ -n "\$skip" ]; then skip=""; continue; fi
-    case "\$a" in
-        --target=*) continue ;;
-        -arch) skip=1; continue ;;
-    esac
+    case "\$a" in --target=*) continue ;; esac
     set -- "\$@" "\$a"
 done
-exec zig $lang -target $(zig_target "$t") -g0 $extra "\$@"
+exec zig $lang -target $2 -g0 "\$@"
 EOF
     done
+    printf '#!/bin/sh\nexec zig ar "$@"\n' > "$tools/$1-ar"
+    printf '#!/bin/sh\nexec zig ranlib "$@"\n' > "$tools/$1-ranlib"
+}
+# native <rust target>: the machine's own C compiler, archiver and linker.
+native() {
+    for t in cc:cc c++:c++ ar:ar ranlib:ranlib; do
+        printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v "${t#*:}")" > "$tools/$1-${t%%:*}"
+    done
+}
+for t in $build $targets; do
+    case "$t" in
+        *-linux-gnu | *-apple-darwin) native "$t" ;;
+        *-linux-musl) zig_cc "$t" "${t%%-*}-linux-musl" ;;
+        wasm32-wasip1) zig_cc "$t" wasm32-wasi ;;
+        x86_64-pc-windows-gnullvm)
+            for x in cc:clang c++:clang++; do
+                printf '#!/bin/sh\nexec %s "$@"\n' "$mingw/bin/x86_64-w64-mingw32-${x#*:}" > "$tools/$t-${x%%:*}"
+            done
+            printf '#!/bin/sh\nexec %s "$@"\n' "$mingw/bin/llvm-ar" > "$tools/$t-ar"
+            printf '#!/bin/sh\nexec %s "$@"\n' "$mingw/bin/llvm-ranlib" > "$tools/$t-ranlib"
+            ;;
+    esac
 done
 chmod +x "$tools"/*
 
-# llvm-config for each host's LLVM library: what rustc's build asks of it.
+# llvm-config for the LLVM libraries: what rustc's build asks of them.
 components="ipo bitreader bitwriter linker asmparser lto coverage instrumentation
     aarch64 amdgpu arm avr bpf hexagon lanai loongarch mips msp430 nvptx powerpc riscv sparc spirv
     systemz ve webassembly x86 xcore"
-for h in $HOSTS; do
+for h in $build $host; do
     cat > "$tools/llvm-config-$h" <<EOF
 #!/bin/sh
 # The LLVM library rustc for $h links: LLVM 22.1.8 with rustc's LLVM wrapper,
@@ -166,16 +201,8 @@ EOF
 done
 
 # The build's configuration.
-if [ "$mode" = host ]; then
-    hosts="$host"
-    targets="$host"
-else
-    hosts="$BUILD"
-    targets="$TARGETS"
-fi
 quote() { printf '"%s"' "$1"; }
 list() { printf '['; sep=""; for x in $1; do printf '%s"%s"' "$sep" "$x"; sep=", "; done; printf ']'; }
-config="$src/bootstrap.toml"
 {
     echo 'change-id = "ignore"'
     echo
@@ -183,8 +210,8 @@ config="$src/bootstrap.toml"
     echo 'download-ci-llvm = false'
     echo
     echo '[build]'
-    echo "build = $(quote $BUILD)"
-    echo "host = $(list "$hosts")"
+    echo "build = $(quote $build)"
+    echo "host = $(list "$host")"
     echo "target = $(list "$targets")"
     echo 'docs = false'
     echo 'extended = true'
@@ -209,16 +236,16 @@ config="$src/bootstrap.toml"
     echo 'compression-formats = ["xz"]'
     echo 'compression-profile = "fast"'
     echo 'include-mingw-linker = false'
-    for t in $BUILD $hosts $targets; do echo "$t"; done | sort -u | while read -r t; do
+    for t in $build $host $targets; do echo "$t"; done | sort -u | while read -r t; do
         echo
         echo "[target.$t]"
         echo "cc = $(quote "$tools/$t-cc")"
         echo "cxx = $(quote "$tools/$t-c++")"
-        echo "ar = $(quote "$tools/ar")"
-        echo "ranlib = $(quote "$tools/ranlib")"
+        echo "ar = $(quote "$tools/$t-ar")"
+        echo "ranlib = $(quote "$tools/$t-ranlib")"
         echo "linker = $(quote "$tools/$t-cc")"
         echo "optimized-compiler-builtins = $(quote "$runtimes/targets/$(runtimes_target "$t")/libclang_rt.builtins.a")"
-        case " $HOSTS " in *" $t "*) echo "llvm-config = $(quote "$tools/llvm-config-$t")" ;; esac
+        case " $build $host " in *" $t "*) echo "llvm-config = $(quote "$tools/llvm-config-$t")" ;; esac
         case "$t" in
             wasm32-*) echo "wasi-root = $(quote "$wasi")" ;;
             *) echo 'profiler = true' ;;
@@ -228,22 +255,21 @@ config="$src/bootstrap.toml"
             x86_64-unknown-linux-gnu) echo 'default-linker-linux-override = "off"' ;;
         esac
     done
-} > "$config"
+} > "$src/bootstrap.toml"
 log "bootstrap.toml:"
-cat "$config" >&2
+cat "$src/bootstrap.toml" >&2
 
 # The compiler the build makes runs against the LLVM library; nothing from the
 # machine's own libraries reaches it.
 export LLVM_PROVIDES_RUSTC_WRAPPER=1
-export LD_LIBRARY_PATH="$neollvm/$BUILD"
+case "$platform" in
+    macos-*) export DYLD_LIBRARY_PATH="$neollvm/$build" ;;
+    *) export LD_LIBRARY_PATH="$neollvm/$build" ;;
+esac
 export PKG_CONFIG=/bin/false
 cd "$src"
 rm -rf build/dist
-if [ "$mode" = host ]; then
-    python3 x.py dist --host "$host" --target "$host" rustc cargo clippy rustfmt
-else
-    python3 x.py dist rust-std
-fi
+python3 x.py dist --host "$host" --target "$(echo $targets | tr ' ' ',')" rustc cargo clippy rustfmt rust-std
 
 # What the tarballs install, without the installer's own files: each
 # component's tree under its directory.
@@ -262,22 +288,22 @@ install_components() { # install_components <dir> <into>
         done)
     done
 }
-if [ "$mode" = host ]; then
-    dest="$out/rust/host/$host"
+dest="$out/rust/host/$host"
+rm -rf "$dest"
+for d in "$dist"/*/; do
+    case "$(basename "$d")" in rust-std-*) continue ;; esac
+    install_components "$d" "$dest"
+done
+test -f "$dest/bin/rustc" || test -f "$dest/bin/rustc.exe" || die "no rustc for $host"
+log "rust/host/$host: $(du -sh "$dest" | cut -f1)"
+for t in $targets; do
+    dest="$out/rust/target/$t"
     rm -rf "$dest"
-    for d in "$dist"/*/; do install_components "$d" "$dest"; done
-    test -x "$dest/bin/rustc" || test -f "$dest/bin/rustc.exe"
-    log "rust/host/$host: $(du -sh "$dest" | cut -f1)"
-else
-    for t in $TARGETS; do
-        dest="$out/rust/target/$t"
-        rm -rf "$dest"
-        mkdir -p "$dest"
-        tmp="$WORK/std-$t"
-        rm -rf "$tmp"
-        install_components "$dist/rust-std-$RUST_VERSION-$t" "$tmp"
-        cp -Rp "$tmp/lib/rustlib/$t/." "$dest/"
-        ls "$dest/lib" | grep -q '^libstd-' || die "no standard library for $t"
-        log "rust/target/$t: $(du -sh "$dest" | cut -f1)"
-    done
-fi
+    mkdir -p "$dest"
+    tmp="$WORK/std-$t"
+    rm -rf "$tmp"
+    install_components "$dist/rust-std-$RUST_VERSION-$t" "$tmp"
+    cp -Rp "$tmp/lib/rustlib/$t/." "$dest/"
+    ls "$dest/lib" | grep -q '^libstd-' || die "no standard library for $t"
+    log "rust/target/$t: $(du -sh "$dest" | cut -f1)"
+done
