@@ -98,8 +98,11 @@ jobs:
           mkdir -p ../slices/runtimes ../slices/clibs
           gh release download "$RUNTIMES_RELEASE" -R "$GITHUB_REPOSITORY" -p "$RUNTIMES_ZIP" -D ../slices
           gh release download "$CLIBS_RELEASE" -R "$GITHUB_REPOSITORY" -p "$CLIBS_ZIP" -D ../slices
-          unzip -q "../slices/$RUNTIMES_ZIP" -d ../slices/runtimes
-          unzip -q "../slices/$CLIBS_ZIP" -d ../slices/clibs
+          # -o: macOS's file system matches names without regard to case,
+          # and the runtimes hold Linux's headers whose names differ only so
+          # (xt_connmark.h, xt_CONNMARK.h), which no macOS build reads.
+          unzip -q -o "../slices/$RUNTIMES_ZIP" -d ../slices/runtimes
+          unzip -q -o "../slices/$CLIBS_ZIP" -d ../slices/clibs
       - name: Node for ${{ matrix.platform }}
         run: |
           set -eu
