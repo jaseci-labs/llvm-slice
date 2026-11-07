@@ -1,15 +1,21 @@
-"""Lay out CPython's standard library and its frozen modules for the slice.
+"""Lay out CPython's standard library, its frozen modules and typeshed's
+stubs of it for the slice.
 
-    python3 cpython/stdlib.py <source> <build> <out>
+    python3 cpython/stdlib.py <source> <build> <typeshed> <out>
 
 <source> is the unpacked release, <build> a native build of it in which
 Programs/_freeze_module has written Python/frozen_modules/ (cpython/stdlib.sh
-makes both). Writes:
+makes both), <typeshed> an unpacked typeshed tree. Writes:
 
   <out>/lib/python3.15/                    Lib/, as an installed interpreter
                                            lays it out, less the test suite,
                                            IDLE and the Tk toolkits
   <out>/frozen/Python/frozen_modules/*.h   the frozen modules
+  <out>/typeshed/{LICENSE,stdlib/}         typeshed's stubs of the standard
+                                           library (and VERSIONS, which says
+                                           which Pythons have each module):
+                                           those of the modules this one
+                                           ships, for a checker's types
 
 The frozen modules are a native build's: Programs/_freeze_module (C) writes
 them, and a cross build would write equivalent but different bytes with
@@ -25,6 +31,9 @@ import sys
 # whose C module neojac does not build. A name here is left out at every
 # level, as a directory or a file.
 LIB_LEAVE_OUT = {"test", "idlelib", "tkinter", "turtledemo", "turtle.py", "__pycache__"}
+
+# The Python whose standard library this is, for typeshed's VERSIONS.
+VERSION = (3, 15)
 
 
 def copy_file(src, dst):
@@ -62,16 +71,69 @@ def copy_frozen(build, out):
     return len(names)
 
 
+def typeshed_versions(path):
+    """VERSIONS as {module: (first, last)}, each a (major, minor) or None."""
+    table = {}
+    with open(path) as f:
+        for line in f:
+            line = line.split("#")[0].strip()
+            if not line:
+                continue
+            module, span = line.split(":")
+            first, last = span.strip().split("-")
+            table[module.strip()] = tuple(
+                tuple(int(p) for p in v.split(".")) if v else None for v in (first, last)
+            )
+    return table
+
+
+def shipped(module, versions):
+    """Whether this standard library has `module`: VERSIONS has it in 3.15
+    (by its own line, else its nearest package's), and it is not one the
+    slice leaves out."""
+    if module.split(".")[0] in LIB_LEAVE_OUT or module.split(".")[0] + ".py" in LIB_LEAVE_OUT:
+        return False
+    parts = module.split(".")
+    for k in range(len(parts), 0, -1):
+        span = versions.get(".".join(parts[:k]))
+        if span is not None:
+            first, last = span
+            return first <= VERSION and (last is None or VERSION <= last)
+    sys.exit(f"typeshed's VERSIONS has no line for {module}")
+
+
+def copy_typeshed(typeshed, out):
+    src = os.path.join(typeshed, "stdlib")
+    versions = typeshed_versions(os.path.join(src, "VERSIONS"))
+    dest = os.path.join(out, "typeshed", "stdlib")
+    n = 0
+    for dirpath, dirnames, filenames in os.walk(src):
+        rel = os.path.relpath(dirpath, src)
+        dirnames.sort()
+        for name in sorted(filenames):
+            if not name.endswith(".pyi"):
+                continue
+            path = name[:-4] if rel == "." else os.path.join(rel, name[:-4])
+            module = path.replace(os.sep, ".").removesuffix(".__init__")
+            if shipped(module, versions):
+                copy_file(os.path.join(dirpath, name), os.path.join(dest, rel, name))
+                n += 1
+    copy_file(os.path.join(src, "VERSIONS"), os.path.join(dest, "VERSIONS"))
+    copy_file(os.path.join(typeshed, "LICENSE"), os.path.join(out, "typeshed", "LICENSE"))
+    return n
+
+
 def main():
-    if len(sys.argv) != 4:
+    if len(sys.argv) != 5:
         sys.exit(__doc__)
-    source, build, out = sys.argv[1:4]
-    for d in ["lib", "frozen"]:
+    source, build, typeshed, out = sys.argv[1:5]
+    for d in ["lib", "frozen", "typeshed"]:
         if os.path.isdir(os.path.join(out, d)):
             shutil.rmtree(os.path.join(out, d))
     copy_lib(source, out)
     n = copy_frozen(build, out)
-    print(f"stdlib.py: the standard library and {n} frozen modules in {out}", file=sys.stderr)
+    stubs = copy_typeshed(typeshed, out)
+    print(f"stdlib.py: the standard library, {n} frozen modules and {stubs} stubs in {out}", file=sys.stderr)
 
 
 if __name__ == "__main__":

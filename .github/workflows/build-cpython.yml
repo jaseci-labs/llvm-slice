@@ -15,6 +15,7 @@ name: Build CPython slice
 #                      it out, less the test suite, IDLE and Tk
 #   cpython/frozen/Python/frozen_modules/
 #                      the frozen modules, from a native build of the release
+#   cpython/typeshed/  typeshed's stubs of that standard library
 #   cpython/SOURCES.txt
 #
 # Every input is pinned by sha256 in cpython/sources.txt (and the LLVM release
@@ -195,6 +196,7 @@ jobs:
           done
           test -f tree/cpython/lib/python3.15/os.py
           test -f tree/cpython/frozen/Python/frozen_modules/zipimport.h
+          test -f tree/cpython/typeshed/stdlib/VERSIONS
           {
             echo "# Built from these pinned inputs (llvm-slice cpython/sources.txt; the"
             echo "# LLVM release and mingw-w64 that built the macOS and Windows libraries"
