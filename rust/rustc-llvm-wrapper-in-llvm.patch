@@ -1,7 +1,9 @@
 # rustc links an LLVM library that carries rustc_llvm's wrapper itself (neojac's
 # libneollvm): with LLVM_PROVIDES_RUSTC_WRAPPER set, rustc_llvm compiles no
 # wrapper and links no C++ runtime or LLVM dependency, and rustc_codegen_llvm
-# names no llvm-wrapper library.
+# names no llvm-wrapper library. The wrapper takes the function it appends to
+# a Rust string with (LLVMRustSetStringWriter) instead of naming a Rust
+# function, which a library linked before Rust cannot do.
 diff -ruN a/compiler/rustc_codegen_llvm/build.rs b/compiler/rustc_codegen_llvm/build.rs
 --- a/compiler/rustc_codegen_llvm/build.rs
 +++ b/compiler/rustc_codegen_llvm/build.rs
@@ -171,3 +173,94 @@ diff -ruN a/compiler/rustc_llvm/build.rs b/compiler/rustc_llvm/build.rs
          if let Some(s) = llvm_static_stdcpp {
              assert!(cxxflags.into_iter().all(|flag| flag != "-stdlib=libc++"));
              let path = PathBuf::from(s);
+diff -ruN a/compiler/rustc_llvm/llvm-wrapper/LLVMWrapper.h b/compiler/rustc_llvm/llvm-wrapper/LLVMWrapper.h
+--- a/compiler/rustc_llvm/llvm-wrapper/LLVMWrapper.h
++++ b/compiler/rustc_llvm/llvm-wrapper/LLVMWrapper.h
+@@ -22,16 +22,20 @@
+ typedef struct LLVMOpaqueTwine *LLVMTwineRef;
+ typedef struct LLVMOpaqueSMDiagnostic *LLVMSMDiagnosticRef;
+ 
+-extern "C" void LLVMRustStringWriteImpl(RustStringRef buf,
+-                                        const char *slice_ptr,
+-                                        size_t slice_len);
++// Appends to a Rust string. rustc_llvm gives the wrapper its function
++// (LLVMRustSetStringWriter) before it passes the wrapper a string to write to:
++// an LLVM library that carries the wrapper is linked before Rust is, so the
++// wrapper cannot name a Rust function.
++typedef void (*LLVMRustStringWriter)(RustStringRef buf, const char *slice_ptr,
++                                     size_t slice_len);
++extern LLVMRustStringWriter LLVMRustStringWrite;
+ 
+ class RawRustStringOstream : public llvm::raw_ostream {
+   RustStringRef Str;
+   uint64_t Pos;
+ 
+   void write_impl(const char *Ptr, size_t Size) override {
+-    LLVMRustStringWriteImpl(Str, Ptr, Size);
++    LLVMRustStringWrite(Str, Ptr, Size);
+     Pos += Size;
+   }
+ 
+diff -ruN a/compiler/rustc_llvm/llvm-wrapper/RustWrapper.cpp b/compiler/rustc_llvm/llvm-wrapper/RustWrapper.cpp
+--- a/compiler/rustc_llvm/llvm-wrapper/RustWrapper.cpp
++++ b/compiler/rustc_llvm/llvm-wrapper/RustWrapper.cpp
+@@ -140,6 +140,12 @@
+   LastError = strdup(Err);
+ }
+ 
++LLVMRustStringWriter LLVMRustStringWrite = nullptr;
++
++extern "C" void LLVMRustSetStringWriter(LLVMRustStringWriter Write) {
++  LLVMRustStringWrite = Write;
++}
++
+ extern "C" void LLVMRustSetNormalizedTarget(LLVMModuleRef M,
+                                             const char *Target) {
+   unwrap(M)->setTargetTriple(Triple(Triple::normalize(Target)));
+diff -ruN a/compiler/rustc_llvm/src/lib.rs b/compiler/rustc_llvm/src/lib.rs
+--- a/compiler/rustc_llvm/src/lib.rs
++++ b/compiler/rustc_llvm/src/lib.rs
+@@ -3,6 +3,7 @@
+ // tidy-alphabetical-end
+ 
+ use std::cell::RefCell;
++use std::sync::Once;
+ use std::{ptr, slice};
+ 
+ use libc::size_t;
+@@ -14,8 +15,18 @@
+     pub type RustString;
+ }
+ 
++unsafe extern "C" {
++    /// Gives the C++ code the function it appends to a [`RustString`] with
++    /// ([`LLVMRustStringWriteImpl`]): an LLVM library that carries the C++
++    /// code is linked before Rust is, so the C++ code cannot name it.
++    fn LLVMRustSetStringWriter(write: unsafe extern "C" fn(&RustString, *const u8, size_t));
++}
++
+ impl RustString {
+     pub fn build_byte_buffer(closure: impl FnOnce(&Self)) -> Vec<u8> {
++        // Before the C++ code is passed a string to write to.
++        static WRITER: Once = Once::new();
++        WRITER.call_once(|| unsafe { LLVMRustSetStringWriter(LLVMRustStringWriteImpl) });
+         let buf = RustStringInner::default();
+         closure(buf.as_opaque());
+         buf.into_inner()
+@@ -53,13 +64,9 @@
+     }
+ }
+ 
+-/// Appends the contents of a byte slice to a [`RustString`].
+-///
+-/// This function is implemented in `rustc_llvm` so that the C++ code in this
+-/// crate can link to it directly, without an implied link-time dependency on
+-/// `rustc_codegen_llvm`.
+-#[unsafe(no_mangle)]
+-pub unsafe extern "C" fn LLVMRustStringWriteImpl(
++/// Appends the contents of a byte slice to a [`RustString`]: the function the
++/// C++ code in this crate writes to one with, which [`RustString`] gives it.
++unsafe extern "C" fn LLVMRustStringWriteImpl(
+     buf: &RustString,
+     slice_ptr: *const u8, // Same ABI as `*const c_char`
+     slice_len: size_t,
