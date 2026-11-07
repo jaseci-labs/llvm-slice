@@ -111,7 +111,7 @@ for f in libc.a libdl.a libwasi-emulated-getpid.a libwasi-emulated-mman.a \
 done
 cp "$WORK/wasi-rt/wasm32-unknown-wasip1/libclang_rt.builtins.a" "$t/"
 
-for p in macos-aarch64 windows-x86_64; do
+for p in macos-aarch64 windows-x86_64 linux-x86_64 linux-aarch64; do
     mkdir -p "$out/host/$p"
     cp "$in/host-$p/lib"/* "$out/host/$p/"
 done

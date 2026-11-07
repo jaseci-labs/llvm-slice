@@ -25,7 +25,13 @@ name: Build libc++ LLVM slice
 #
 # The slice carries the same dev surface as the official release archives:
 # LLVM, Clang (its static libraries, headers and resource headers) and,
-# with the `lld` input, LLD.
+# with the `lld` input, LLD. Like the official archives, LLVM compresses with
+# zlib and zstd: static builds of both at the same floor
+# (runtimes/host-libs.sh), which the runtimes slice ships as
+# host/linux-<arch>/ for a consumer to link with the archives.
+#
+# A slice once published is pinned by its consumers: a rebuild for the same
+# LLVM version is a new revision, whose triple carries a -r<revision> suffix.
 #
 # Downstream is unchanged: the built install tree flows through the existing
 # `scripts/repackage.jac --work-dir` path (classify CMake -> measure libs -> emit
@@ -55,6 +61,10 @@ on:
         description: "Also build LLD's libraries (lld/ projects) into the slice; names the slice triple with a -lld suffix"
         type: boolean
         default: true
+      revision:
+        description: "Revision of the slice for this LLVM version; a revision after 1 names the triple with a -r<revision> suffix, so a consumer's pin of an earlier one keeps working"
+        type: string
+        default: "1"
       dry_run:
         description: "Build the slice but do not publish a release"
         type: boolean
@@ -87,7 +97,7 @@ jobs:
     env:
       # The slice triple for the libc++ build. Distinct from the official
       # `<arch>-linux` slices so both can coexist on the same v<version> release.
-      SLICE_TRIPLE: "${{ matrix.arch }}-linux-libcxx${{ inputs.lld && '-lld' || '' }}"
+      SLICE_TRIPLE: "${{ matrix.arch }}-linux-libcxx${{ inputs.lld && '-lld' || '' }}${{ inputs.revision != '1' && format('-r{0}', inputs.revision) || '' }}"
       # Glibc floor baked into the archives' libc references (matches CPython/PBS
       # manylinux2014, both arches).
       ZIG_TARGET: "${{ matrix.arch }}-linux-gnu.2.17"
@@ -165,11 +175,24 @@ jobs:
             exit 1
           fi
 
+      - name: zlib and zstd (static, glibc 2.17 floor)
+        # What LLVM compresses with (compressed debug sections: LLD's
+        # --compress-debug-sections, and reading objects that carry them).
+        # runtimes/host-libs.sh builds them with this Zig; the runtimes slice
+        # ships the same build as host/linux-<arch>/, which a consumer links
+        # with the archives, as it links the official macOS archives with
+        # host/macos-aarch64/.
+        run: |
+          set -euo pipefail
+          WORK="$WORK/host-work" SRC_CACHE="$WORK/host-src" \
+            sh runtimes/host-libs.sh "linux-${{ matrix.arch }}" "$WORK/host-libs"
+
       - name: Configure (CMake + Ninja, static libc++ dev surface)
-        # Static archives only, no shared libLLVM, no tools/tests/examples, and
-        # every optional host-probing external OFF: the consuming shim links the
-        # archives statically with Zig and cannot pull host .so deps (-lz, -lzstd,
-        # libxml2, terminfo, ...), so LLVM must not reference them.
+        # Static archives only, no shared libLLVM, no tools/tests/examples.
+        # zlib and zstd are the static libraries the step above built (and
+        # the runtimes slice ships); every other optional host-probing external
+        # is OFF: a consumer links the archives statically with no system
+        # libraries (libxml2, terminfo, ...), so LLVM must not reference them.
         run: |
           set -euo pipefail
           cmake -G Ninja \
@@ -196,8 +219,10 @@ jobs:
             -DCLANG_INCLUDE_DOCS=OFF \
             -DCLANG_BUILD_EXAMPLES=OFF \
             -DLLVM_ENABLE_BINDINGS=OFF \
-            -DLLVM_ENABLE_ZLIB=OFF \
-            -DLLVM_ENABLE_ZSTD=OFF \
+            -DLLVM_ENABLE_ZLIB=FORCE_ON \
+            -DLLVM_ENABLE_ZSTD=FORCE_ON \
+            -DLLVM_USE_STATIC_ZSTD=ON \
+            -DCMAKE_PREFIX_PATH="$WORK/host-libs" \
             -DLLVM_ENABLE_LIBXML2=OFF \
             -DLLVM_ENABLE_TERMINFO=OFF \
             -DLLVM_ENABLE_LIBEDIT=OFF \
@@ -224,6 +249,11 @@ jobs:
           find "$WORK/llvm-install/lib" -maxdepth 1 -name '*.so*' -exec rm -f {} +
           test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMConfig.cmake"
           test -f "$WORK/llvm-install/lib/cmake/llvm/LLVMExports.cmake"
+          # LLVM compresses and decompresses with both.
+          for f in ZLIB ZSTD; do
+            grep -q "#define LLVM_ENABLE_$f 1" "$WORK/llvm-install/include/llvm/Config/llvm-config.h" \
+              || { echo "::error::LLVM_ENABLE_$f is off"; exit 1; }
+          done
           # Clang: the libraries a driver links, its headers, and the resource
           # headers (stddef.h, the intrinsics) every compilation includes.
           for lib in clangBasic clangLex clangParse clangSema clangAST clangAnalysis \

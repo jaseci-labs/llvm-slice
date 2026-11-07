@@ -1,16 +1,21 @@
 #!/bin/sh
-# The libraries LLVM's official macOS and Windows archives reference but do not
-# ship, as static libraries, so a consumer links the archives without the
-# system's copies: each built by its own CMake, with the options LLVM's release
-# builds use.
+# The libraries LLVM's archives reference but do not ship, as static
+# libraries, so a consumer links the archives without the system's copies:
+# each built by its own CMake, with the options LLVM's release builds use.
 #
 #   runtimes/host-libs.sh macos-aarch64 <out>    zlib, zstd and libxml2 for
 #       macOS 14.0 and later (LLVM's Clang and the macOS SDK; run on macOS)
 #   runtimes/host-libs.sh windows-x86_64 <out>   libxml2 for MSVC against the
 #       static runtime (/MT), the libxml2 build_llvm_release.bat makes (run in a
 #       Visual Studio developer environment)
+#   runtimes/host-libs.sh linux-x86_64 <out>     zlib and zstd for the libc++
+#   runtimes/host-libs.sh linux-aarch64 <out>    slices (build-libcxx.yml), at
+#       their glibc 2.17 floor, position-independent (a consumer links them
+#       into a shared library with the archives): Zig's cc, the compiler that
+#       builds those slices, from any Linux host
 #
-# Writes the static libraries to <out>/lib.
+# Writes the static libraries to <out>/lib and their headers to <out>/include,
+# which a build of LLVM against them reads.
 . "$(dirname "$0")/lib.sh"
 platform="$1"
 out="$(mkdir -p "$2" && cd "$2" && pwd)"
@@ -74,6 +79,28 @@ case "$platform" in
         find "$out/lib" -name '*.dylib' -exec rm -f {} +
         for f in libz.a libzstd.a libxml2.a; do test -f "$out/lib/$f"; done
         ;;
+    linux-x86_64 | linux-aarch64)
+        arch="${platform#linux-}"
+        z="$WORK/zig-$arch"
+        mkdir -p "$z"
+        # CMake takes one path per tool: Zig's, wrapped. No debug info, as in
+        # the slices' own archives.
+        printf '#!/bin/sh\nexec zig cc -target %s-linux-gnu.2.17 "$@" -g0\n' "$arch" > "$z/cc"
+        printf '#!/bin/sh\nexec zig ar "$@"\n' > "$z/ar"
+        printf '#!/bin/sh\nexec zig ranlib "$@"\n' > "$z/ranlib"
+        chmod +x "$z/cc" "$z/ar" "$z/ranlib"
+        common="-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=$arch -DCMAKE_C_COMPILER=$z/cc
+            -DCMAKE_AR=$z/ar -DCMAKE_RANLIB=$z/ranlib -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+            -DCMAKE_C_FLAGS=-fvisibility=hidden"
+        unpack zlib-1.3.1.tar.gz "$WORK/zlib"
+        cmake_build zlib "$WORK/zlib" -DZLIB_BUILD_EXAMPLES=OFF
+        unpack zstd-1.5.7.tar.gz "$WORK/zstd"
+        cmake_build zstd "$WORK/zstd/build/cmake" -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON \
+            -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_LEGACY_SUPPORT=OFF
+        # Static libraries only: zlib's build also makes a shared one.
+        find "$out/lib" -name '*.so*' -exec rm -f {} +
+        for f in libz.a libzstd.a; do test -f "$out/lib/$f"; done
+        ;;
     windows-x86_64)
         common="-DCMAKE_C_COMPILER=cl -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
         unpack_libxml2
@@ -81,9 +108,9 @@ case "$platform" in
         cmake_build libxml2 "$WORK/libxml2" $xml_options
         ls "$out/lib"
         ;;
-    *) die "platform is macos-aarch64 or windows-x86_64" ;;
+    *) die "platform is macos-aarch64, windows-x86_64, linux-x86_64 or linux-aarch64" ;;
 esac
-# Only the static libraries: a link needs nothing else.
+# The static libraries, and their headers: a link needs nothing else.
 find "$out/lib" -mindepth 1 ! -name "*.a" ! -name "*.lib" -exec rm -rf {} +
-rm -rf "$out/include" "$out/share" "$out/bin"
+rm -rf "$out/share" "$out/bin"
 log "$platform: $(ls "$out/lib" | tr '\n' ' ')"

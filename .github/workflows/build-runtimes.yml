@@ -17,8 +17,9 @@ name: Build runtimes
 #                      CRT, winpthreads and import libraries; compiler-rt's
 #                      builtins and LLVM's libunwind, libc++abi and libc++;
 #                      wasi-libc (wasi-sdk's build)
-#   host/<platform>/   the static libraries LLVM's official macOS and Windows
-#                      archives reference but do not ship (zlib, zstd, libxml2)
+#   host/<platform>/   the static libraries LLVM's archives reference but do not
+#                      ship: the official macOS and Windows archives' (zlib,
+#                      zstd, libxml2) and the libc++ Linux slices' (zlib, zstd)
 #
 # Every library is built from a pinned upstream release (runtimes/sources.txt)
 # by its own build system with the release's Clang: musl's configure, glibc's
@@ -55,6 +56,7 @@ permissions:
 env:
   LLVM_VERSION: "22.1.8"
   JACLANG_VERSION: "0.16.7"
+  ZIG_VERSION: "0.16.0"
 
 jobs:
   linux:
@@ -193,8 +195,39 @@ jobs:
           path: windows.tar.gz
           retention-days: 7
 
+  host-linux:
+    # zlib and zstd for the libc++ LLVM slices, which compress with them (the
+    # same build build-libcxx.yml makes them with): Zig's cc, for both
+    # architectures from one runner.
+    runs-on: ubuntu-24.04
+    env:
+      WORK: ${{ github.workspace }}/../work
+      SRC_CACHE: ${{ github.workspace }}/../src
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: ${{ env.ZIG_VERSION }}
+      - name: Tools
+        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build
+      - uses: actions/cache@v4
+        with:
+          path: ${{ env.SRC_CACHE }}
+          key: runtimes-src-host-linux-${{ hashFiles('runtimes/sources.txt') }}
+      - name: Static zlib and zstd for the libc++ archives
+        run: |
+          set -eu
+          sh runtimes/host-libs.sh linux-x86_64 out/host-linux-x86_64
+          sh runtimes/host-libs.sh linux-aarch64 out/host-linux-aarch64
+          tar -czf host-linux.tar.gz -C out .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: runtimes-host-linux
+          path: host-linux.tar.gz
+          retention-days: 7
+
   pack:
-    needs: [linux, glibc, darwin, windows]
+    needs: [linux, glibc, darwin, windows, host-linux]
     runs-on: ubuntu-24.04
     env:
       WORK: ${{ github.workspace }}/../work
