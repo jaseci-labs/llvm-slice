@@ -1,0 +1,8 @@
+# Every upstream input of the Rust slice, pinned: <file> <sha256> <url>. The
+# LLVM sources (compiler-rt and libunwind, which the standard library builds
+# from), Zig's inputs aside, and wasi-libc are pinned in runtimes/sources.txt.
+
+# rustc, its tools and the standard library, with every crate they depend on
+# vendored. Its bootstrap downloads the compiler that builds it (the beta its
+# src/stage0 pins, each file by sha256).
+rustc-1.99.0-src.tar.xz cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036 https://static.rust-lang.org/dist/rustc-1.99.0-src.tar.xz
