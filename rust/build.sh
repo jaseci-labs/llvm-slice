@@ -241,7 +241,13 @@ list() { printf '['; sep=""; for x in $1; do printf '%s"%s"' "$sep" "$x"; sep=",
     echo '[dist]'
     echo 'compression-formats = ["xz"]'
     echo 'compression-profile = "fast"'
-    echo 'include-mingw-linker = false'
+    # On Windows, the runtime DLLs the tools load (libunwind.dll) ship beside
+    # rustc.exe; nowhere else is there one to ship.
+    if [ "$platform" = windows-x86_64 ]; then
+        echo 'include-mingw-linker = true'
+    else
+        echo 'include-mingw-linker = false'
+    fi
     for t in $build $host $targets; do echo "$t"; done | sort -u | while read -r t; do
         echo
         echo "[target.$t]"
@@ -306,6 +312,9 @@ for d in "$dist"/*/; do
     install_components "$d" "$dest"
 done
 test -f "$dest/bin/rustc" || test -f "$dest/bin/rustc.exe" || die "no rustc for $host"
+if [ "$platform" = windows-x86_64 ]; then
+    test -f "$dest/bin/libunwind.dll" || die "no libunwind.dll beside rustc.exe"
+fi
 log "rust/host/$host: $(du -sh "$dest" | cut -f1)"
 for t in $targets; do
     dest="$out/rust/target/$t"
