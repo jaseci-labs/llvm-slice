@@ -22,7 +22,10 @@ slices', and builds Node from its own copy of Node's C++ (`rt/node`) with it.
 | `node/LICENSE` | Node's license, which covers what it bundles |
 | `node/SOURCES.txt` | every pinned input |
 
-for `linux-x86_64`, `linux-aarch64`, `macos-aarch64` and `macos-x86_64`.
+for `linux-x86_64`, `linux-aarch64` and `macos-aarch64`, the platforms neojac
+runs on that run Node. (An Intel Mac's part would serve only a cross build of
+Node for one, which neojac's toolchain, fetching its own platform's part, does
+not do.)
 
 ## How it is made
 

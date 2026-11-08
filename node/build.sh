@@ -12,12 +12,8 @@
 #
 #   node/build.sh <platform> <clibs> <runtimes> <out>
 #
-#   <platform>  linux-x86_64, linux-aarch64 (natively, on Linux), macos-aarch64
-#               or macos-x86_64 (on an Apple silicon Mac: every tool the build
-#               compiles, compiled for x86-64 as its host compiler is, runs
-#               under Rosetta, so configure sees no cross build and keeps the
-#               startup snapshot and code cache, which a cross build leaves
-#               out)
+#   <platform>  linux-x86_64, linux-aarch64 (natively, on Linux) or
+#               macos-aarch64 (on an Apple silicon Mac)
 #   <clibs>     the clibs slice's tree for <platform> (clibs/<platform>/ of
 #               clibs-v<set>-<revision>)
 #   <runtimes>  the runtimes slice's tree (runtimes-v<llvm>-<revision>)
@@ -58,12 +54,9 @@ case "$platform" in
         [ "$arch" = aarch64 ] && dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
         ;;
-    macos-aarch64 | macos-x86_64)
-        arch="${platform#macos-}"
-        march="$arch"
-        [ "$arch" = aarch64 ] && march=arm64
-        triple="$march-apple-macos14.0"
-        tdir="$arch-macos"
+    macos-aarch64)
+        triple="arm64-apple-macos14.0"
+        tdir="aarch64-macos"
         # The system root neojac compiles and links macOS programs against,
         # the runtimes slice's (libc/darwin: libSystem's and the frameworks'
         # stubs; libc/include/darwin: the SDK's headers), not the machine's
@@ -76,14 +69,11 @@ case "$platform" in
         syslibs="$WORK/darwin-libs"
         mkdir -p "$syslibs"
         for l in System m dl pthread c; do cp "$darwin/libSystem.tbd" "$syslibs/lib$l.tbd"; done
-        # compiler-rt's builtins for the target, as neojac links them: the
-        # LLVM release's for macOS hold arm64's alone, which an x86-64 link
-        # (__cpu_model, __builtin_cpu_supports') cannot use.
+        # compiler-rt's builtins for the target, as neojac links them.
         link_flags="-fuse-ld=lld -nodefaultlibs -L$syslibs"
         link_libs="$rt/targets/$tdir/libclang_rt.builtins.a -lSystem"
         cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a"
         dest_cpu=arm64
-        [ "$arch" = x86_64 ] && dest_cpu=x64
         ;;
     *) die "no Node slice for '$platform'" ;;
 esac
