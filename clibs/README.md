@@ -15,7 +15,7 @@ runtimes slice's, and its CPython and Node link from it
 
 | Path | What |
 |---|---|
-| `clibs/<platform>/lib/` | `libz.a`, `libbz2.a`, `liblzma.a`, `libzstd.a`, `libsqlite3.a`, `libffi.a`, `libcrypto.a`, `libssl.a`, for `linux-x86_64`, `linux-aarch64`, `macos-aarch64`, `macos-x86_64` and `windows-x86_64` |
+| `clibs/<platform>/lib/` | `libz.a`, `libbz2.a`, `liblzma.a`, `libzstd.a`, `libsqlite3.a`, `libffi.a`, `libcrypto.a`, `libssl.a`, for `linux-x86_64`, `linux-aarch64`, `macos-aarch64` and `windows-x86_64`; `macos-x86_64` (Intel Macs, not an officially supported host) only when a dispatch of `build-clibs.yml` asks for it |
 | `clibs/<platform>/include/` | their public headers, as each installs them |
 | `clibs/<platform>/licenses/<library>/` | their licenses |
 | `clibs/SOURCES.txt` | every pinned input |

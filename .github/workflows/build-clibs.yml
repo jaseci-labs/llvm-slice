@@ -8,8 +8,9 @@ name: Build clibs slice
 #
 #   clibs/<platform>/  zlib, bzip2, liblzma, Zstandard, SQLite, libffi and
 #                      OpenSSL, with their headers and licenses, for
-#                      linux-x86_64, linux-aarch64, macos-aarch64,
-#                      macos-x86_64 and windows-x86_64
+#                      linux-x86_64, linux-aarch64, macos-aarch64 and
+#                      windows-x86_64 (and macos-x86_64, Intel Macs, when a
+#                      dispatch asks for it: not an officially supported host)
 #   clibs/SOURCES.txt
 #
 # Every input is pinned by sha256 in clibs/sources.txt (and the LLVM release
@@ -29,6 +30,10 @@ on:
         description: "Build and check the slice, but do not publish it"
         type: boolean
         default: true
+      macos_x86_64:
+        description: "Also build macos-x86_64 (Intel Macs), not an officially supported host, built only when asked for"
+        type: boolean
+        default: false
   pull_request:
     paths:
       - "clibs/**"
@@ -86,8 +91,8 @@ jobs:
           retention-days: 7
 
   darwin:
-    # Both architectures on one runner, with the LLVM release's Clang and the
-    # runner's SDK.
+    # With the LLVM release's Clang and the runner's SDK: macos-aarch64, and
+    # macos-x86_64 when a dispatch asks for it.
     runs-on: macos-26
     env:
       WORK: ${{ github.workspace }}/../work
@@ -102,7 +107,9 @@ jobs:
         run: |
           set -eu
           sh clibs/clibs.sh macos-aarch64 out/clibs/macos-aarch64
-          sh clibs/clibs.sh macos-x86_64 out/clibs/macos-x86_64
+          if [ "${{ inputs.macos_x86_64 }}" = true ]; then
+            sh clibs/clibs.sh macos-x86_64 out/clibs/macos-x86_64
+          fi
       # COPYFILE_DISABLE: no AppleDouble (._*) entries for the files' extended
       # attributes, which the Linux job that unpacks this would write as files.
       - name: Pack
@@ -162,7 +169,9 @@ jobs:
           set -eu
           mkdir -p tree
           for a in artifacts/*/*.tar.gz; do tar -xzf "$a" -C tree; done
-          for p in linux-x86_64 linux-aarch64 macos-aarch64 macos-x86_64 windows-x86_64; do
+          platforms="linux-x86_64 linux-aarch64 macos-aarch64 windows-x86_64"
+          if [ "${{ inputs.macos_x86_64 }}" = true ]; then platforms="$platforms macos-x86_64"; fi
+          for p in $platforms; do
             for f in libz.a libbz2.a liblzma.a libzstd.a libsqlite3.a libffi.a libcrypto.a libssl.a; do
               test -f "tree/clibs/$p/lib/$f" || { echo "::error::no clibs/$p/lib/$f"; exit 1; }
             done
