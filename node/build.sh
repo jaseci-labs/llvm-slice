@@ -52,6 +52,8 @@ case "$platform" in
         # redirect calls to symbols glibc 2.28 lacks (__isoc23_strtol).
         cflags="-nostdinc -isystem $LLVM/lib/clang/22/include -isystem $rt/libc/include/$libc_arch -isystem $rt/libc/include/generic-glibc -isystem $rt/libc/include/$kernel -D__GLIBC_MINOR__=28"
         cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a $rt/targets/$tdir/libunwind.a"
+        link_flags="-fuse-ld=lld"
+        link_libs="-lpthread"
         dest_cpu="$arch"
         [ "$arch" = aarch64 ] && dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
@@ -60,10 +62,25 @@ case "$platform" in
         arch="${platform#macos-}"
         march="$arch"
         [ "$arch" = aarch64 ] && march=arm64
-        sdk="$(xcrun --sdk macosx --show-sdk-path)"
         triple="$march-apple-macos14.0"
         tdir="$arch-macos"
-        cflags="-isysroot $sdk"
+        # The system root neojac compiles and links macOS programs against,
+        # the runtimes slice's (libc/darwin: libSystem's and the frameworks'
+        # stubs; libc/include/darwin: the SDK's headers), not the machine's
+        # Xcode SDK, whose stubs a newer Xcode writes in a form the LLVM
+        # release's linker may not read.
+        darwin="$rt/libc/darwin"
+        cflags="-isysroot $darwin -nostdinc -isystem $LLVM/lib/clang/22/include -isystem $rt/libc/include/darwin -iframework $darwin/System/Library/Frameworks"
+        # libm, libdl, libpthread and libc are libSystem, as the SDK's stubs
+        # of them are.
+        syslibs="$WORK/darwin-libs"
+        mkdir -p "$syslibs"
+        for l in System m dl pthread c; do cp "$darwin/libSystem.tbd" "$syslibs/lib$l.tbd"; done
+        # compiler-rt's builtins for the target, as neojac links them: the
+        # LLVM release's for macOS hold arm64's alone, which an x86-64 link
+        # (__cpu_model, __builtin_cpu_supports') cannot use.
+        link_flags="-fuse-ld=lld -nodefaultlibs -L$syslibs"
+        link_libs="$rt/targets/$tdir/libclang_rt.builtins.a -lSystem"
         cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a"
         dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
@@ -76,19 +93,29 @@ bin="$WORK/node-bin"
 mkdir -p "$bin"
 cat > "$bin/cc" << EOF
 #!/bin/sh
+# A link (no -c, -E, -S or -M among the arguments) takes the platform's
+# link flags and libraries.
+link=1
+for a in "\$@"; do
+    case "\$a" in -c | -E | -S | -M | -MM) link=0 ;; esac
+done
+if [ "\$link" = 1 ]; then
+    exec "$LLVM/bin/clang" --target=$triple $cflags $link_flags "\$@" $link_libs
+fi
 exec "$LLVM/bin/clang" --target=$triple $cflags "\$@"
 EOF
 cat > "$bin/c++" << EOF
 #!/bin/sh
 # libc++'s headers, then its configuration for the target (__config_site), as
 # neojac's C++ compiles; a link (no -c, -E, -S or -M among the arguments)
-# takes the runtimes' libc++, never the system's.
+# takes the runtimes' libc++, never the system's, and the platform's link
+# flags and libraries.
 link=1
 for a in "\$@"; do
     case "\$a" in -c | -E | -S | -M | -MM) link=0 ;; esac
 done
 if [ "\$link" = 1 ]; then
-    exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/include" -isystem "$rt/targets/$tdir/include" $cflags -fuse-ld=lld -nostdlib++ "\$@" $cxx_runtime -lpthread
+    exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/include" -isystem "$rt/targets/$tdir/include" $cflags $link_flags -nostdlib++ "\$@" $cxx_runtime $link_libs
 fi
 exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/include" -isystem "$rt/targets/$tdir/include" $cflags "\$@"
 EOF
