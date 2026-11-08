@@ -8,7 +8,6 @@ name: Build Rust slice
 #
 #   rust/host/<host>/       rustc (with rustdoc), cargo, clippy and rustfmt
 #   rust/target/<target>/   the standard library (lib/rustlib/<target>/)
-#   rust/neollvm-imports.txt
 #   rust/SOURCES.txt
 #
 # Each platform's job builds with the platform's own C toolchain, as Rust's
@@ -157,11 +156,11 @@ jobs:
                    x86_64-pc-windows-gnullvm wasm32-wasip1; do
             ls "tree/rust/target/$t/lib" | grep -q '^libstd-' || { echo "::error::no standard library for $t"; exit 1; }
           done
-          # What rustc's binaries import from the LLVM library, which a
-          # consumer's library must export.
-          nm -D --undefined-only tree/rust/host/*-linux-gnu/lib/*.so | awk '{ print $2 }' \
-            | grep '^LLVM' | sort -u > tree/rust/neollvm-imports.txt
-          test -s tree/rust/neollvm-imports.txt
+          # What each host's tools import from the LLVM library, which a
+          # consumer's library for the host must export (rust/build.sh).
+          for h in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu aarch64-apple-darwin x86_64-pc-windows-gnullvm; do
+            test -s "tree/rust/host/$h/neollvm-imports.txt" || { echo "::error::no neollvm-imports.txt for $h"; exit 1; }
+          done
           {
             echo "# Built from these pinned inputs (llvm-slice rust/sources.txt; the LLVM"
             echo "# sources and wasi-libc are pinned in runtimes/sources.txt), with Zig $ZIG_VERSION:"

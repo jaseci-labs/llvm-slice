@@ -13,9 +13,8 @@ directory, so a client range-fetches what it needs), and
 
 | Path | What |
 |---|---|
-| `rust/host/<host>/` | rustc (with rustdoc), cargo, clippy and rustfmt for each host, as a sysroot lays them out (`bin/`, `lib/`, `libexec/`, `share/`): `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-pc-windows-gnullvm` |
+| `rust/host/<host>/` | rustc (with rustdoc), cargo, clippy and rustfmt for each host, as a sysroot lays them out (`bin/`, `lib/`, `libexec/`, `share/`): `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `aarch64-apple-darwin`, `x86_64-pc-windows-gnullvm`; and `neollvm-imports.txt`, every function its tools import from the LLVM library, which the library a consumer ships for the host must export |
 | `rust/target/<target>/` | the standard library of each target, what a sysroot's `lib/rustlib/<target>/` holds: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-gnullvm`, `wasm32-wasip1` |
-| `rust/neollvm-imports.txt` | every LLVM function rustc's binaries import from the LLVM library, which the library a consumer ships must export |
 | `rust/SOURCES.txt` | every pinned input |
 
 rustc's binaries name the LLVM library by the name it has in neojac:
@@ -68,6 +67,8 @@ disabled).
   `libserde_derive-<hash>.so`).
 - **rustc's bootstrap**, with a generated `llvm-config` describing the LLVM
   library to it, runs `x.py dist` for the host's tools and the standard
-  libraries.
+  libraries. Each host's rustc is built for the LLVM targets the LLVM slice
+  neojac builds libneollvm from on that host carries (its manifest's
+  `targets_to_build`): Windows' official LLVM carries fewer than the others.
 - The standard library carries line tables (`debuginfo-level-std = 1`),
   their debug sections compressed with zlib, as Rust's own releases do.

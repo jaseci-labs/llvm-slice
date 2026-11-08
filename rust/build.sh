@@ -179,11 +179,23 @@ for t in $build $targets; do
 done
 chmod +x "$tools"/*
 
+# llvm_manifest <rust host>: the manifest of the LLVM slice neojac builds
+# libneollvm from on that host, whose LLVM targets the host's rustc is built
+# for (Windows' official LLVM carries fewer than the others).
+llvm_manifest() {
+    case "$1" in
+        x86_64-unknown-linux-gnu) fetch llvm-22.1.8-x86_64-linux-libcxx-lld-r2-manifest.json ;;
+        aarch64-unknown-linux-gnu) fetch llvm-22.1.8-aarch64-linux-libcxx-lld-r2-manifest.json ;;
+        aarch64-apple-darwin) fetch llvm-22.1.8-aarch64-apple-darwin-manifest.json ;;
+        x86_64-pc-windows-gnullvm) fetch llvm-22.1.8-x86_64-pc-windows-msvc-manifest.json ;;
+    esac
+}
+
 # llvm-config for the LLVM libraries: what rustc's build asks of them.
-components="ipo bitreader bitwriter linker asmparser lto coverage instrumentation
-    aarch64 amdgpu arm avr bpf hexagon lanai loongarch mips msp430 nvptx powerpc riscv sparc spirv
-    systemz ve webassembly x86 xcore"
 for h in $build $host; do
+    manifest="$(llvm_manifest "$h")"
+    components="ipo bitreader bitwriter linker asmparser lto coverage instrumentation $(python3 -c \
+        'import json, sys; print(" ".join(t.lower() for t in json.load(open(sys.argv[1]))["targets_to_build"]))' "$manifest")"
     cat > "$tools/llvm-config-$h" <<EOF
 #!/bin/sh
 # The LLVM library rustc for $h links: LLVM 22.1.8 with rustc's LLVM wrapper,
@@ -312,6 +324,19 @@ for d in "$dist"/*/; do
     install_components "$d" "$dest"
 done
 test -f "$dest/bin/rustc" || test -f "$dest/bin/rustc.exe" || die "no rustc for $host"
+# What the host's tools import from libneollvm, which the library a consumer
+# ships for the host must export: from the libraries themselves.
+case "$platform" in
+    linux-*)
+        nm -D --undefined-only "$dest"/lib/*.so | awk '{ print $2 }' ;;
+    macos-*)
+        nm -u "$dest"/lib/*.dylib | sed 's/^_//' ;;
+    windows-*)
+        "$mingw/bin/llvm-objdump" -p "$dest"/bin/*.dll \
+            | awk '/DLL Name:/ { dll = $3 } dll == "libneollvm.dll" && NF == 2 { print $2 }' ;;
+esac | grep '^LLVM' | sort -u > "$dest/neollvm-imports.txt"
+test -s "$dest/neollvm-imports.txt" || die "no imports from libneollvm recorded for $host"
+log "rust/host/$host imports $(wc -l < "$dest/neollvm-imports.txt") functions from libneollvm"
 if [ "$platform" = windows-x86_64 ]; then
     test -f "$dest/bin/libunwind.dll" || die "no libunwind.dll beside rustc.exe"
 fi
