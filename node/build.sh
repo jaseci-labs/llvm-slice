@@ -64,7 +64,10 @@ case "$platform" in
         triple="$march-apple-macos14.0"
         tdir="$arch-macos"
         cflags="-isysroot $sdk"
-        cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a"
+        # compiler-rt's builtins for the target, as neojac links them: the
+        # LLVM release's for macOS hold arm64's alone, which an x86-64 link
+        # (__cpu_model, __builtin_cpu_supports') cannot use.
+        cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a $rt/targets/$tdir/libclang_rt.builtins.a"
         dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
         ;;
