@@ -22,9 +22,7 @@ slices', and builds Node from its own copy of Node's C++ (`rt/node`) with it.
 | `node/LICENSE` | Node's license, which covers what it bundles |
 | `node/SOURCES.txt` | every pinned input |
 
-for `linux-x86_64`, `linux-aarch64` and `macos-aarch64`. `macos-x86_64` (Intel
-Macs) is a lane of its own, built when a dispatch of `build-node.yml` asks for it
-(`macos_x86_64`), on Apple silicon under Rosetta.
+for `linux-x86_64`, `linux-aarch64`, `macos-aarch64` and `macos-x86_64`.
 
 ## How it is made
 
