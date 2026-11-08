@@ -1,7 +1,9 @@
 #!/bin/sh
 # The files glibc links into every program it runs, for one glibc release on the
-# machine's own architecture: crt1.o, Scrt1.o, crti.o, crtn.o and
-# libc_nonshared.a, from a full build of that release by its own configure and
+# machine's own architecture: crt1.o, Scrt1.o, crti.o, crtn.o, libc_nonshared.a
+# and, for a release before 2.28, libpthread_nonshared.a (pthread_atfork, which
+# libpthread.so's linker script links from it until 2.28 moved it into
+# libc_nonshared.a), from a full build of that release by its own configure and
 # make.
 #
 #   runtimes/glibc-crt.sh <version> <out>
@@ -28,7 +30,10 @@ make -s -C "$build" -j"$JOBS"
 for f in csu/crt1.o csu/Scrt1.o csu/crti.o csu/crtn.o libc_nonshared.a; do
     cp "$build/$f" "$out/"
 done
-if readelf -S --wide "$out"/*.o "$out/libc_nonshared.a" | grep -q '\.debug_info'; then
+if [ -f "$build/nptl/libpthread_nonshared.a" ]; then
+    cp "$build/nptl/libpthread_nonshared.a" "$out/"
+fi
+if readelf -S --wide "$out"/*.o "$out"/*.a | grep -q '\.debug_info'; then
     die "glibc $version: the start files carry debug info"
 fi
 log "glibc $version ($(uname -m)): $(ls "$out" | tr '\n' ' ')"
