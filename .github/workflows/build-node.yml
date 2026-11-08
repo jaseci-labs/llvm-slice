@@ -103,7 +103,10 @@ jobs:
         run: |
           set -eu
           sh node/build.sh "${{ matrix.platform }}" "../slices/clibs/clibs/${{ matrix.platform }}" ../slices/runtimes out
-          tar -czf node.tar.gz -C out .
+          # COPYFILE_DISABLE: no AppleDouble (._*) entries for the files'
+          # extended attributes on macOS, which the job that unpacks this
+          # would write as files.
+          COPYFILE_DISABLE=1 tar -czf node.tar.gz -C out .
       - uses: actions/upload-artifact@v4
         with:
           name: node-${{ matrix.platform }}
