@@ -13,7 +13,7 @@ pins the manifest by its sha256; neojac ships the tree as its `lib/`.
 | Target | Under `targets/` |
 |---|---|
 | `x86_64-linux-musl`, `aarch64-linux-musl` | musl's `libc.a` and start files (`crt1.o`, `rcrt1.o`, `Scrt1.o`, `crti.o`, `crtn.o`) |
-| `x86_64-linux-gnu`, `aarch64-linux-gnu` | glibc's start files and `libc_nonshared.a` for each band of releases whose start files differ: `glibc-2.17/` (2.17 to 2.32), `glibc-2.33/`, `glibc-2.34/` (2.34 and later) |
+| `x86_64-linux-gnu`, `aarch64-linux-gnu` | glibc's start files and `libc_nonshared.a` for each band of releases whose start files differ: `glibc-2.17/` (2.17 to 2.32, with `libpthread_nonshared.a`, which holds `pthread_atfork` before 2.28), `glibc-2.33/`, `glibc-2.34/` (2.34 and later) |
 | `x86_64-windows-gnu` | mingw-w64's CRT (`crt2.o`, `crt2u.o`, `dllcrt2.o`, `crtbegin.o`, `crtend.o`, `libmingw32.a`, `libmingwex.a`, ...), winpthreads, and the import libraries of the system's DLLs, against the Universal CRT; and zlib (`libz.a`, its headers in `libc/include/mingw-w64/`), which Windows ships no DLL of |
 | `aarch64-macos`, `x86_64-macos` | (libSystem is the C library: `libc/darwin/libSystem.tbd`; the frameworks programs link besides it, CoreFoundation, Security and SystemConfiguration, are `libc/darwin/System/Library/Frameworks/<name>.framework/`, each its headers and stub, and the libraries they re-export, libobjc, are `libc/darwin/usr/lib/<name>.tbd`) |
 | `wasm32-wasi` | wasi-libc and its emulation libraries |
