@@ -9,6 +9,7 @@
 #   <out>/libiconv.tbd     libiconv's, likewise: not part of libSystem, and the
 #                          libc crate links it into every Rust program for macOS
 #                          that uses that crate
+#   <out>/libobjc.tbd      libobjc's, likewise, for -lobjc, by its usual name
 #   <out>/frameworks/<name>.framework/{Headers/,<name>.tbd}
 #                          the frameworks below: each one's headers, and its
 #                          stub restricted as libSystem's is
@@ -42,13 +43,16 @@ python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Arch
     "$sdk/usr/lib/libSystem.tbd" "$out/libSystem.tbd"
 python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
     "$sdk/usr/lib/libiconv.tbd" "$out/libiconv.tbd"
+python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
+    "$sdk/usr/lib/libobjc.tbd" "$out/libobjc.tbd"
 
 # The frameworks besides libSystem that the programs neojac builds link:
 # CPython's _scproxy, which urllib.request imports on macOS, reads the system's
 # proxy settings through SystemConfiguration, whose headers include
-# CoreFoundation's and Security's. Each is laid out flat (no Versions/ or
+# CoreFoundation's and Security's; and rustc itself and Rust programs through
+# objc2, Foundation. Each is laid out flat (no Versions/ or
 # symbolic links), as Clang's -iframework and LLD's -syslibroot find it.
-FRAMEWORKS="CoreFoundation Security SystemConfiguration"
+FRAMEWORKS="CoreFoundation Foundation Security SystemConfiguration"
 rm -rf "$out/frameworks"
 for f in $FRAMEWORKS; do
     src="$sdk/System/Library/Frameworks/$f.framework"
@@ -64,7 +68,7 @@ done
 # install name, and what it re-exports in turn. libSystem's own parts are
 # inlined in its stub; the frameworks re-export one another.
 rm -rf "$out/root"
-stubs="$out/libSystem.tbd $out/libiconv.tbd $out/frameworks/*/*.tbd"
+stubs="$out/libSystem.tbd $out/libiconv.tbd $out/libobjc.tbd $out/frameworks/*/*.tbd"
 while :; do
     # shellcheck disable=SC2086
     names="$(python3 "$RUNTIMES_DIR/tbd_reexports.py" $stubs)"

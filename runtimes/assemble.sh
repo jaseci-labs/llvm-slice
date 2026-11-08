@@ -16,6 +16,7 @@
 #   libc/glibc/abilist/<arch>.abilist, libc/glibc/abilist/VERSION
 #   libc/darwin/libSystem.tbd
 #   libc/darwin/libiconv.tbd
+#   libc/darwin/libobjc.tbd
 #   libc/darwin/System/Library/Frameworks/<name>.framework/{Headers/,<name>.tbd}
 #                                    the macOS frameworks programs link besides
 #                                    libSystem, where a link's -syslibroot
@@ -49,6 +50,7 @@ mkdir -p "$inc/mingw-w64"
 cp -R "$in/darwin/include" "$inc/darwin"
 cp "$in/darwin/libSystem.tbd" "$out/libc/darwin/libSystem.tbd"
 cp "$in/darwin/libiconv.tbd" "$out/libc/darwin/libiconv.tbd"
+cp "$in/darwin/libobjc.tbd" "$out/libc/darwin/libobjc.tbd"
 mkdir -p "$out/libc/darwin/System/Library"
 cp -R "$in/darwin/frameworks" "$out/libc/darwin/System/Library/Frameworks"
 if [ -d "$in/darwin/root" ]; then
