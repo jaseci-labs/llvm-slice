@@ -111,7 +111,7 @@ exec "$LLVM/bin/clang++" --target=$triple -nostdinc++ -isystem "$rt/libcxx/inclu
 EOF
 chmod +x "$bin/cc" "$bin/c++"
 export CC="$bin/cc" CXX="$bin/c++" CC_host="$bin/cc" CXX_host="$bin/c++" LINK="$bin/c++"
-export AR="$LLVM/bin/llvm-ar" RANLIB="$LLVM/bin/llvm-ranlib"
+export AR="$LLVM/bin/llvm-ar" RANLIB="$LLVM/bin/llvm-ranlib" STRIP="$LLVM/bin/llvm-strip"
 
 src="$WORK/node"
 unpack "node-v$NODE_VERSION.tar.xz" "$src"

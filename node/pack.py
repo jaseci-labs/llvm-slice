@@ -69,21 +69,26 @@ def mk_list(text, name):
 def whole_archive(thin, out):
     """`thin`, an archive gyp's make writes thin (naming its members' objects
     where they are), as an ordinary one holding them, at `out`; an ordinary
-    archive (cargo's) as it is. AR names the archiver (the LLVM release's
-    llvm-ar)."""
+    archive (cargo's) as it is; either without debug information. AR names
+    the archiver (the LLVM release's llvm-ar)."""
     with open(thin, "rb") as f:
         magic = f.read(8)
     if magic == b"!<arch>\n":
         # Already an ordinary archive (cargo's).
         shutil.copyfile(thin, out)
-        return
-    ar = os.environ.get("AR", "ar").split()
-    listed = subprocess.run(ar + ["t", thin], capture_output=True, text=True, check=True).stdout.split()
-    base = os.path.dirname(thin)
-    members = [m if os.path.isabs(m) else os.path.join(base, m) for m in listed]
-    if os.path.exists(out):
-        os.remove(out)
-    subprocess.run(ar + ["rcsD", out] + members, check=True)
+    else:
+        ar = os.environ.get("AR", "ar").split()
+        listed = subprocess.run(ar + ["t", thin], capture_output=True, text=True, check=True).stdout.split()
+        base = os.path.dirname(thin)
+        members = [m if os.path.isabs(m) else os.path.join(base, m) for m in listed]
+        if os.path.exists(out):
+            os.remove(out)
+        subprocess.run(ar + ["rcsD", out] + members, check=True)
+    # Without debug information, as every slice ships its libraries: Node's
+    # build compiles macOS with -gdwarf-2 (gyp's Xcode default), which makes
+    # V8's archives gigabytes. STRIP names the stripper (the LLVM release's
+    # llvm-strip).
+    subprocess.run(os.environ.get("STRIP", "strip").split() + ["--strip-debug", out], check=True)
 
 
 def depfile_paths(text):
