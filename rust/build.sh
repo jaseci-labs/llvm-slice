@@ -333,7 +333,7 @@ case "$platform" in
         nm -u "$dest"/lib/*.dylib | sed 's/^_//' ;;
     windows-*)
         "$mingw/bin/llvm-objdump" -p "$dest"/bin/*.dll \
-            | awk '/DLL Name:/ { dll = $3 } dll == "libneollvm.dll" && NF >= 3 { print $NF }' ;;
+            | awk '/DLL Name:/ { dll = $3 } dll == "libneollvm.dll" && NF == 2 { print $2 }' ;;
 esac | grep '^LLVM' | sort -u > "$dest/neollvm-imports.txt"
 test -s "$dest/neollvm-imports.txt" || die "no imports from libneollvm recorded for $host"
 log "rust/host/$host imports $(wc -l < "$dest/neollvm-imports.txt") functions from libneollvm"
