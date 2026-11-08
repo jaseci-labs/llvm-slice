@@ -15,14 +15,12 @@
 #                                    darwin
 #   libc/glibc/abilist/<arch>.abilist, libc/glibc/abilist/VERSION
 #   libc/darwin/libSystem.tbd
-#   libc/darwin/libiconv.tbd
-#   libc/darwin/libobjc.tbd
 #   libc/darwin/System/Library/Frameworks/<name>.framework/{Headers/,<name>.tbd}
 #                                    the macOS frameworks programs link besides
 #                                    libSystem, where a link's -syslibroot
 #                                    libc/darwin finds them
-#   libc/darwin/usr/lib/<name>.tbd   the libraries they re-export (libobjc), at
-#                                    their install names
+#   libc/darwin/usr/lib/<name>.tbd   the SDK's system libraries, where a link's
+#                                    system root finds -l<name>
 #   libcxx/include/                  libc++'s headers (and libc++abi's)
 #   libunwind/include/
 #   targets/<target>/                each target's libraries and start files, and
@@ -49,8 +47,6 @@ mkdir -p "$inc/mingw-w64"
 (cd "$in/mingw/x86_64-w64-mingw32/include" && tar -cf - --exclude '*.idl' .) | (cd "$inc/mingw-w64" && tar -xf -)
 cp -R "$in/darwin/include" "$inc/darwin"
 cp "$in/darwin/libSystem.tbd" "$out/libc/darwin/libSystem.tbd"
-cp "$in/darwin/libiconv.tbd" "$out/libc/darwin/libiconv.tbd"
-cp "$in/darwin/libobjc.tbd" "$out/libc/darwin/libobjc.tbd"
 mkdir -p "$out/libc/darwin/System/Library"
 cp -R "$in/darwin/frameworks" "$out/libc/darwin/System/Library/Frameworks"
 if [ -d "$in/darwin/root" ]; then
