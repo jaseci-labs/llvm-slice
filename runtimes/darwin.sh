@@ -6,6 +6,9 @@
 #                          headers (c++/), which LLVM's own libc++ replaces
 #   <out>/libSystem.tbd    the SDK's stub of libSystem, restricted to the
 #                          architectures the pinned LLVM's TextAPI reads
+#   <out>/libiconv.tbd     libiconv's, likewise: not part of libSystem, and the
+#                          libc crate links it into every Rust program for macOS
+#                          that uses that crate
 #   <out>/frameworks/<name>.framework/{Headers/,<name>.tbd}
 #                          the frameworks below: each one's headers, and its
 #                          stub restricted as libSystem's is
@@ -37,6 +40,8 @@ mkdir -p "$out/include"
 # against the arm64e entries, which TextAPI treats as compatible.
 python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
     "$sdk/usr/lib/libSystem.tbd" "$out/libSystem.tbd"
+python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
+    "$sdk/usr/lib/libiconv.tbd" "$out/libiconv.tbd"
 
 # The frameworks besides libSystem that the programs neojac builds link:
 # CPython's _scproxy, which urllib.request imports on macOS, reads the system's
@@ -59,7 +64,7 @@ done
 # install name, and what it re-exports in turn. libSystem's own parts are
 # inlined in its stub; the frameworks re-export one another.
 rm -rf "$out/root"
-stubs="$out/libSystem.tbd $out/frameworks/*/*.tbd"
+stubs="$out/libSystem.tbd $out/libiconv.tbd $out/frameworks/*/*.tbd"
 while :; do
     # shellcheck disable=SC2086
     names="$(python3 "$RUNTIMES_DIR/tbd_reexports.py" $stubs)"
