@@ -9,8 +9,8 @@ name: Build Node slice
 #   node/<platform>/{lib,include,gen,build.json}
 #                      V8, ICU and Node's other dependencies prebuilt, their
 #                      headers, what Node's build generates, and how Node's
-#                      own C++ is compiled, for linux-x86_64, linux-aarch64,
-#                      macos-aarch64 and macos-x86_64
+#                      own C++ is compiled, for linux-x86_64, linux-aarch64
+#                      and macos-aarch64
 #   node/npm/, node/LICENSE, node/SOURCES.txt
 #
 # Built with the runtimes slice's libc++ and against the clibs slice's
@@ -68,8 +68,6 @@ jobs:
             runner: ubuntu-24.04-arm
           - platform: macos-aarch64
             runner: macos-26
-          - platform: macos-x86_64
-            runner: macos-26
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 360
     env:
@@ -90,8 +88,6 @@ jobs:
           set -eu
           rustup toolchain install "$RUST_VERSION" --profile minimal
           rustup default "$RUST_VERSION"
-          # macOS x86-64 is cross-built on Apple silicon.
-          if [ "${{ matrix.platform }}" = macos-x86_64 ]; then rustup target add x86_64-apple-darwin; fi
       - name: The runtimes and clibs slices
         run: |
           set -eu
@@ -133,7 +129,7 @@ jobs:
           set -eu
           mkdir -p tree
           for a in artifacts/*/*.tar.gz; do tar -xzf "$a" -C tree; done
-          for p in linux-x86_64 linux-aarch64 macos-aarch64 macos-x86_64; do
+          for p in linux-x86_64 linux-aarch64 macos-aarch64; do
             for f in build.json gen/node_javascript.cc gen/node_snapshot.cc lib/libv8_base_without_compiler.a; do
               test -f "tree/node/$p/$f" || { echo "::error::no node/$p/$f"; exit 1; }
             done
