@@ -18,3 +18,11 @@ llvm-22.1.8-runtimes-dev.zip 489747718bbf3647e1986ee3a6b3df1b564e886ba89e39236b2
 llvm-22.1.8-aarch64-apple-darwin-dev.zip 91024b179d4c0ee78a565d934957ee275733151c18c6a3238a4ca65334037c25 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-apple-darwin-dev.zip
 llvm-22.1.8-x86_64-linux-libcxx-lld-r2-dev.zip 3353739c26fca76558d8de3a24fc8a5fd5b9d3bfe85426a33a25d7571ed6e5cb https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-x86_64-linux-libcxx-lld-r2-dev.zip
 llvm-22.1.8-aarch64-linux-libcxx-lld-r2-dev.zip fbfe562265551eecb20ea5a0ab2001dfb46cadf605fb5b5bcec0806f8f0bdb01 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-linux-libcxx-lld-r2-dev.zip
+
+# The manifests of the LLVM slices neojac builds libneollvm from on each host:
+# the LLVM targets each one carries are the components that host's rustc is
+# built with, which its libneollvm exports.
+llvm-22.1.8-x86_64-linux-libcxx-lld-r2-manifest.json 5e6e56050a70e8d5c3968215966ad5e2f44da99e12dd8bef953e98dee3d2fb6b https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-x86_64-linux-libcxx-lld-r2-manifest.json
+llvm-22.1.8-aarch64-linux-libcxx-lld-r2-manifest.json 961a963e1564d89aae66e95887dbc8804c252bac8dca6026b86fb6cc7d9d42e8 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-linux-libcxx-lld-r2-manifest.json
+llvm-22.1.8-aarch64-apple-darwin-manifest.json 541721f3501de4bd4f19b0319d857b7d51651856b26fa8f600ad317edb8ea441 https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-aarch64-apple-darwin-manifest.json
+llvm-22.1.8-x86_64-pc-windows-msvc-manifest.json 56a666087c7f099c9516f5ec9c24771c774a5fcec3d2a0d9050d7193df36e1dd https://github.com/jaseci-labs/llvm-slice/releases/download/v22.1.8/llvm-22.1.8-x86_64-pc-windows-msvc-manifest.json
