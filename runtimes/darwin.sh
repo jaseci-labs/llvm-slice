@@ -79,7 +79,15 @@ while :; do
             /System/Library/Frameworks/*.framework/*)
                 fw="${n#/System/Library/Frameworks/}"
                 fw="${fw%%.framework/*}"
-                case " $FRAMEWORKS " in *" $fw "*) continue ;; esac
+                case " $FRAMEWORKS " in
+                    *" $fw "*)
+                        # A linker finds what's re-exported by its install name, and
+                        # the frameworks are laid out flat: its stub there as well.
+                        mkdir -p "$(dirname "$out/root$n.tbd")"
+                        cp "$out/frameworks/$fw.framework/$fw.tbd" "$out/root$n.tbd"
+                        continue
+                        ;;
+                esac
                 die "a framework re-exports $n, a framework the runtimes do not ship" ;;
         esac
         dst="$out/root${n%.dylib}.tbd"
@@ -111,8 +119,11 @@ cat > "$WORK/tbd-check.c" <<'EOF'
 #include <Security/Security.h>
 #include <SystemConfiguration/SystemConfiguration.h>
 
+extern void NSLog(CFStringRef, ...);
+
 int main(void) {
     unsigned char b[8];
+    NSLog(CFSTR("Foundation links"));
     CFDictionaryRef proxies = SCDynamicStoreCopyProxies(NULL);
     if (proxies != NULL) {
         CFRelease(proxies);
