@@ -6,18 +6,16 @@
 #                          headers (c++/), which LLVM's own libc++ replaces
 #   <out>/libSystem.tbd    the SDK's stub of libSystem, restricted to the
 #                          architectures the pinned LLVM's TextAPI reads
-#   <out>/libiconv.tbd     libiconv's, likewise: not part of libSystem, and the
-#                          libc crate links it into every Rust program for macOS
-#                          that uses that crate
-#   <out>/libobjc.tbd      libobjc's, likewise, for -lobjc, by its usual name
 #   <out>/frameworks/<name>.framework/{Headers/,<name>.tbd}
 #                          the frameworks below: each one's headers, and its
 #                          stub restricted as libSystem's is
 #   <out>/root/usr/lib/<name>.tbd
-#                          the stubs of the libraries those frameworks
-#                          re-export besides one another and libSystem
-#                          (CoreFoundation's libobjc), at their install names,
-#                          where a link's system root resolves a re-export
+#                          the stubs of the SDK's system libraries (libz, libcurl,
+#                          libiconv, libobjc and the rest), restricted as
+#                          libSystem's is, where a link's system root finds -l<name>
+#                          and resolves a re-export: but for libSystem's own (-lc,
+#                          -lm, which name it) and the C++ runtime's, which neojac
+#                          links its own of
 #   <out>/SDK_VERSION
 #   <out>/<arch>/lib       compiler-rt's builtins and LLVM's C++ runtime for
 #                          macOS 14.0 and later, arm64 and x86_64
@@ -41,10 +39,6 @@ mkdir -p "$out/include"
 # against the arm64e entries, which TextAPI treats as compatible.
 python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
     "$sdk/usr/lib/libSystem.tbd" "$out/libSystem.tbd"
-python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
-    "$sdk/usr/lib/libiconv.tbd" "$out/libiconv.tbd"
-python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
-    "$sdk/usr/lib/libobjc.tbd" "$out/libobjc.tbd"
 
 # The frameworks besides libSystem that the programs neojac builds link:
 # CPython's _scproxy, which urllib.request imports on macOS, reads the system's
@@ -63,43 +57,29 @@ for f in $FRAMEWORKS; do
         "$src/$f.tbd" "$dst/$f.tbd"
 done
 
-# What the frameworks re-export and do not inline (CoreFoundation re-exports
-# libobjc): each such library's stub too, restricted as theirs are, at its
-# install name, and what it re-exports in turn. libSystem's own parts are
-# inlined in its stub; the frameworks re-export one another.
+# The system's libraries, which any program may name. A linker finds what a framework
+# re-exports by its install name, and the frameworks are laid out flat: each stub there
+# as well. libSystem's own parts are inlined in its stub.
 rm -rf "$out/root"
-stubs="$out/libSystem.tbd $out/libiconv.tbd $out/libobjc.tbd $out/frameworks/*/*.tbd"
-while :; do
-    # shellcheck disable=SC2086
-    names="$(python3 "$RUNTIMES_DIR/tbd_reexports.py" $stubs)"
-    added=""
-    for n in $names; do
-        case "$n" in
-            /usr/lib/libSystem.B.dylib) continue ;;
-            /System/Library/Frameworks/*.framework/*)
-                fw="${n#/System/Library/Frameworks/}"
-                fw="${fw%%.framework/*}"
-                case " $FRAMEWORKS " in
-                    *" $fw "*)
-                        # A linker finds what's re-exported by its install name, and
-                        # the frameworks are laid out flat: its stub there as well.
-                        mkdir -p "$(dirname "$out/root$n.tbd")"
-                        cp "$out/frameworks/$fw.framework/$fw.tbd" "$out/root$n.tbd"
-                        continue
-                        ;;
-                esac
-                die "a framework re-exports $n, a framework the runtimes do not ship" ;;
-        esac
-        dst="$out/root${n%.dylib}.tbd"
-        [ -f "$dst" ] && continue
-        src="$sdk${n%.dylib}.tbd"
-        [ -f "$src" ] || die "no stub of $n in the SDK ($src)"
-        mkdir -p "$(dirname "$dst")"
-        python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" "$src" "$dst"
-        stubs="$stubs $dst"
-        added=1
-    done
-    [ -n "$added" ] || break
+mkdir -p "$out/root/usr/lib"
+for src in "$sdk"/usr/lib/*.tbd; do
+    name="$(basename "$src")"
+    case "$name" in libSystem* | libc.tbd | libm.tbd | libc++* | libstdc++*) continue ;; esac
+    python3 "$RUNTIMES_DIR/tbd_targets.py" "$LLVM_SRC/llvm/include/llvm/TextAPI/Architecture.def" \
+        "$src" "$out/root/usr/lib/$name"
+done
+stubs="$out/frameworks/*/*.tbd"
+# shellcheck disable=SC2086
+for n in $(python3 "$RUNTIMES_DIR/tbd_reexports.py" $stubs); do
+    case "$n" in
+        /System/Library/Frameworks/*.framework/*)
+            fw="${n#/System/Library/Frameworks/}"
+            fw="${fw%%.framework/*}"
+            case " $FRAMEWORKS " in *" $fw "*) ;; *) die "a framework re-exports $n, a framework the runtimes do not ship" ;; esac
+            mkdir -p "$(dirname "$out/root$n.tbd")"
+            cp "$out/frameworks/$fw.framework/$fw.tbd" "$out/root$n.tbd"
+            ;;
+    esac
 done
 
 # The stubs must be ones LLD reads, and the frameworks' headers whole: compile a
@@ -120,10 +100,17 @@ cat > "$WORK/tbd-check.c" <<'EOF'
 #include <SystemConfiguration/SystemConfiguration.h>
 
 extern void NSLog(CFStringRef, ...);
+extern void *curl_version(void);
+extern void *iconv_open(const char *, const char *);
+extern const char *sel_getName(void *);
+extern const char *zlibVersion(void);
 
 int main(void) {
     unsigned char b[8];
     NSLog(CFSTR("Foundation links"));
+    if (curl_version() == NULL || iconv_open("", "") == NULL || sel_getName(NULL) == NULL || zlibVersion() == NULL) {
+        return 1;
+    }
     CFDictionaryRef proxies = SCDynamicStoreCopyProxies(NULL);
     if (proxies != NULL) {
         CFRelease(proxies);
@@ -139,7 +126,7 @@ for t in arm64-apple-macosx14.0 x86_64-apple-macosx14.0; do
         -iframework "$out/frameworks" -c "$WORK/tbd-check.c" -o "$WORK/tbd-check.o"
     "$LLVM/bin/ld64.lld" -arch "${t%%-*}" -platform_version macos 14.0 14.0 -syslibroot "$WORK/tbd-root" \
         -fatal_warnings -o "$WORK/tbd-check" \
-        "$WORK/tbd-check.o" "$out/libSystem.tbd" $framework_args
+        "$WORK/tbd-check.o" "$out/libSystem.tbd" $framework_args -lcurl -liconv -lobjc -lz
 done
 
 for arch in aarch64 x86_64; do
