@@ -1,0 +1,4 @@
+# The Rust source slice's upstream inputs, pinned: <file> <sha256> <url>. The LLVM
+# sources (compiler-rt and libunwind, which the standard library builds from)
+# are pinned in runtimes/sources.txt.
+rustc-1.99.0-src.tar.xz cc41916a8c84f5d9ec4f55561b44e39f43b647b133f8a6f51be9ea13c83f7036 https://static.rust-lang.org/dist/rustc-1.99.0-src.tar.xz
