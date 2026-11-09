@@ -70,3 +70,14 @@ jobs:
             --title "Rust $RUST_VERSION source slice (revision $REVISION)" \
             --notes "What neojac's build of rustc reads of Rust $RUST_VERSION besides what neojac keeps in its own repository (rust-src/README.md). Pin rust-src-$RUST_VERSION-manifest.json by its sha256 (record.json)." \
             dist/* record.json
+          tag="rust-library-v$RUST_VERSION-$REVISION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::$tag exists; publish a new revision instead of replacing one consumers pin"
+            exit 1
+          fi
+          sh rust-src/library.sh library-tree
+          jac run scripts/pack_slice.jac --kind rust-library --tree library-tree --version "$RUST_VERSION" --revision "$REVISION" --out-dir library-dist
+          gh release create "$tag" --target "$GITHUB_SHA" --latest=false \
+            --title "Rust $RUST_VERSION standard library source slice (revision $REVISION)" \
+            --notes "The source neojac compiles a target's Rust standard library from, on first use." \
+            library-dist/*
