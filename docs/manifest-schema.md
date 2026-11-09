@@ -138,7 +138,9 @@ standalone `cpython-<version>-manifest.json`, in the runtimes slice's form:
 }
 ```
 
-As with the runtimes, a revision is never replaced.
+As with the runtimes, a revision is never replaced. The `rust-v<version>-<revision>`
+releases came from a build of Rust this repository no longer has, since neojac builds
+rustc itself: they stay published, because neojac 0.2.0 and earlier fetch from them.
 
 ## The clibs and Node slices' manifests
 
@@ -152,4 +154,6 @@ The same form, for the other slices that `scripts/pack_slice.jac` packs:
 | `rust-src-v<version>-<revision>` | `rust-src-<version>-dev.zip`, `rust-src-<version>-manifest.json` (`rust-src/README.md`) | `rust-src` | `rust_src_version` |
 | `rust-library-v<version>-<revision>` | `rust-library-<version>-dev.zip`, `rust-library-<version>-manifest.json` (`rust-src/README.md`) | `rust-library` | `rust_library_version` |
 
-As with the runtimes, a revision is never replaced.
+As with the runtimes, a revision is never replaced. The `rust-v<version>-<revision>`
+releases came from a build of Rust this repository no longer has, since neojac builds
+rustc itself: they stay published, because neojac 0.2.0 and earlier fetch from them.

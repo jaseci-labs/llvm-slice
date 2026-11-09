@@ -11,8 +11,6 @@ directory, so a client fetches the members it needs by HTTP range requests.
                     libraries V: clibs-<V>-dev.zip and clibs-<V>-manifest.json
   --kind node       the Node slice's tree (node/README.md), for Node version
                     V: node-<V>-dev.zip and node-<V>-manifest.json
-  --kind rust       the Rust slice's tree (rust/README.md), for Rust version V:
-                    rust-<V>-dev.zip and rust-<V>-manifest.json
   --kind rust-src   the Rust source slice's tree (rust-src/README.md), for Rust
                     version V: rust-src-<V>-dev.zip and rust-src-<V>-manifest.json
   --kind rust-library  the Rust standard library's source slice's tree
@@ -54,8 +52,8 @@ with entry {
         elif tok == "--out-dir" { out_dir = nxt; i += 1; }
         i += 1;
     }
-    if kind not in ["runtimes", "cpython", "clibs", "node", "rust", "rust-src", "rust-library"] or tree == "" or version == "" or revision < 1 {
-        eprint("usage: pack_slice.jac --kind runtimes|cpython|clibs|node|rust|rust-src|rust-library --tree DIR --version V --revision N [--out-dir DIR]");
+    if kind not in ["runtimes", "cpython", "clibs", "node", "rust-src", "rust-library"] or tree == "" or version == "" or revision < 1 {
+        eprint("usage: pack_slice.jac --kind runtimes|cpython|clibs|node|rust-src|rust-library --tree DIR --version V --revision N [--out-dir DIR]");
         sys.exit(2);
     }
     # The assets' names, and the manifest's field naming the version.
