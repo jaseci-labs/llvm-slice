@@ -150,7 +150,7 @@ The same form, for the other slices that `scripts/pack_slice.jac` packs:
 |---|---|---|---|
 | `clibs-v<set>-<revision>` | `clibs-<set>-dev.zip`, `clibs-<set>-manifest.json` (`clibs/README.md`) | `clibs` | `clibs_version`: the set of library releases, named by when it was chosen (`2026.11`) |
 | `node-v<version>-<revision>` | `node-<version>-dev.zip`, `node-<version>-manifest.json` (`node/README.md`) | `node` | `node_version` |
-| `rust-v<version>-<revision>` | `rust-<version>-dev.zip`, `rust-<version>-manifest.json` (`rust/README.md`) | `rust` | `rust_version` |
+| `rust-v<version>-<revision>` | `rust-<version>-dev.zip`, `rust-<version>-manifest.json` (no longer built: see below) | `rust` | `rust_version` |
 | `rust-src-v<version>-<revision>` | `rust-src-<version>-dev.zip`, `rust-src-<version>-manifest.json` (`rust-src/README.md`) | `rust-src` | `rust_src_version` |
 | `rust-library-v<version>-<revision>` | `rust-library-<version>-dev.zip`, `rust-library-<version>-manifest.json` (`rust-src/README.md`) | `rust-library` | `rust_library_version` |
 
