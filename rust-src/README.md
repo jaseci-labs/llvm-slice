@@ -2,14 +2,16 @@
 
 `rust-src-<version>-dev.zip`, release `rust-src-v<version>-<revision>`: what neojac's
 build of rustc reads of a Rust release besides what neojac keeps in its own
-repository (`compiler/`, in neojac's `rustc/`). Member names
-start with `rust-src/`.
+repository: rustc (`compiler/`), rustdoc (`src/librustdoc/`, `src/rustdoc-json-types/`,
+`src/tools/rustdoc/`) and cargo (`src/tools/cargo/`), in neojac's `rustc/`, which
+neojac's `toolchain/pins.json` lists as rust `vendored`. Member names start with
+`rust-src/`.
 
 | Holds | Why |
 |---|---|
 | `library/` | the standard library, which neojac builds for every target |
-| `src/librustdoc/`, `src/tools/{clippy,rustfmt,cargo}/` and the rest of `src/` | the tools, and the workspace rustc's bootstrap reads |
-| `vendor/` | the crates all of it uses |
+| the rest of `src/` | the members of the workspace neojac builds rustc and rustdoc in |
+| `vendor/` | the crates rustc, rustdoc, cargo and the standard library use |
 | `src/llvm-project/` | upstream LLVM's compiler-rt and libunwind, and the CMake modules they read, in place of Rust's LLVM |
 | `Cargo.toml`, `Cargo.lock` and the rest of the top level | the workspace neojac builds it as |
 
