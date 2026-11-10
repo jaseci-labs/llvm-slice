@@ -14,10 +14,10 @@ slices', and builds Node from its own copy of Node's C++ (`rt/node`) with it.
 
 | Path | What |
 |---|---|
-| `node/<platform>/lib/` | the static libraries `node` links but Node's own C++ (`node_base`), libuv and the clibs slice's: V8's (`libv8_*`, with its builtins and startup snapshot for the platform), what V8 is built on (Abseil, Highway, simdutf, V8's zlib), ICU's (`libicuucx`, `libicui18n`, `libicudata`, the full data), ada, brotli, c-ares, histogram, llhttp, merve, nbytes, ncrypto, nghttp2, simdjson, uvwasi and the inspector's protocol library (`libcrdtp`), and the Rust crates V8's Temporal is built on |
+| `node/<platform>/lib/` | the static libraries Node's shared library links but Node's own C++ (`node_base`), libuv and the clibs slice's, compiled for a shared library (position-independent, with V8's thread-local storage in the model a loaded library's takes): V8's (`libv8_*`, with its builtins and startup snapshot for the platform), what V8 is built on (Abseil, Highway, simdutf, V8's zlib), ICU's (`libicuucx`, `libicui18n`, `libicudata`, the full data), ada, brotli, c-ares, histogram, llhttp, merve, nbytes, ncrypto, nghttp2, simdjson, uvwasi and the inspector's protocol library (`libcrdtp`), and the Rust crates V8's Temporal is built on |
 | `node/<platform>/include/` | every header of those Node's C++ reads, by the path it includes it as |
 | `node/<platform>/gen/` | `node_javascript.cc` (Node's JavaScript, `lib/`, embedded as data by js2c), `node_snapshot.cc` (the startup snapshot `node_mksnapshot` writes), the inspector's protocol code, and the generated headers Node's C++ reads |
-| `node/<platform>/build.json` | how Node's build compiles `node_base`, `libnode` and libuv for the platform (sources, defines, flags, include directories, every file of Node's tree those compiles read), and how a program links the slice (its archives, those linked whole, the system libraries) |
+| `node/<platform>/build.json` | how Node's build compiles `node_base`, `libnode` and libuv for the platform (sources, defines, flags, include directories, every file of Node's tree those compiles read), and how Node's shared library links the slice (its archives, those linked whole as Node's own link of the library takes them, the system libraries) |
 | `node/npm/` | npm, as Node's install lays it out |
 | `node/LICENSE` | Node's license, which covers what it bundles |
 | `node/SOURCES.txt` | every pinned input |
@@ -30,8 +30,13 @@ not do.)
 ## How it is made
 
 `build.sh` builds the release (pinned in `sources.txt`) with its own
-configure and make, natively, compiled as neojac compiles C++ so that the
-libraries link into a neojac program: the LLVM release's Clang (pinned in
+configure and make, natively, as a shared library (`configure --shared`),
+which is how neojac holds Node: it loads the library and runs Node in its own
+process. So the slice's libraries are compiled as a library's must be:
+position-independent, and with V8's thread-local storage in the model a
+library loaded while a program runs can use (V8's default, for a program, is
+valid only in an executable). They are compiled as neojac compiles C++ so that
+they link into neojac's own build of that library: the LLVM release's Clang (pinned in
 `runtimes/sources.txt`) with the runtimes slice's libc++ and libc++abi (their
 headers and static libraries), and on Linux the glibc headers neojac compiles
 against, for glibc 2.28. Node links the clibs slice's OpenSSL, zlib,

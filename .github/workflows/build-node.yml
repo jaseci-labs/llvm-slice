@@ -7,10 +7,10 @@ name: Build Node slice
 # of Node's C++ (rt/node) with it.
 #
 #   node/<platform>/{lib,include,gen,build.json}
-#                      V8, ICU and Node's other dependencies prebuilt, their
-#                      headers, what Node's build generates, and how Node's
-#                      own C++ is compiled, for linux-x86_64, linux-aarch64
-#                      and macos-aarch64
+#                      V8, ICU and Node's other dependencies prebuilt for a
+#                      shared library, their headers, what Node's build
+#                      generates, and how Node's own C++ is compiled, for
+#                      linux-x86_64, linux-aarch64 and macos-aarch64
 #   node/npm/, node/LICENSE, node/SOURCES.txt
 #
 # Built with the runtimes slice's libc++ and against the clibs slice's
@@ -51,7 +51,7 @@ env:
   RUST_VERSION: "1.91.0"
   # The runtimes slice whose libc++ the slice is compiled with, and the clibs
   # slice it links: the releases neojac pins.
-  RUNTIMES_RELEASE: runtimes-v22.1.8-3
+  RUNTIMES_RELEASE: runtimes-v22.1.8-9
   RUNTIMES_ZIP: llvm-22.1.8-runtimes-dev.zip
   CLIBS_RELEASE: clibs-v2026.11-1
   CLIBS_ZIP: clibs-2026.11-dev.zip

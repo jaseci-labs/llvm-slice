@@ -2,12 +2,16 @@
 
     python3 node/pack.py <node> <platform> <out>
 
-<node> is an unpacked Node release, configured and built by node/build.sh
-(out/Release/ holds the build; out/*.mk are gyp's make files, which say what
-each target compiles and links). Writes, under <out>/node/:
+<node> is an unpacked Node release, configured and built by node/build.sh as
+a shared library (configure --shared: out/Release/ holds the build; out/*.mk
+are gyp's make files, which say what each target compiles and links). Writes,
+under <out>/node/:
 
-  <platform>/lib/          the static libraries `node` links that the toolchain
-                           ships prebuilt: V8 and what V8 is built on, ICU,
+  <platform>/lib/          the static libraries Node's library links that the
+                           toolchain ships prebuilt, compiled for a shared
+                           library (position-independent, and V8's thread-local
+                           storage in the model a loaded library's takes): V8
+                           and what V8 is built on, ICU,
                            and Node's other dependencies, but not Node's own
                            C++ (node_base), libuv or the C libraries the
                            clibs slice ships, which neojac compiles or links
@@ -28,11 +32,13 @@ each target compiles and links). Writes, under <out>/node/:
                            "include" directories (relative to Node's tree,
                            or "gen/..." and "include" for the slice's), and
                            "reads", every file of Node's tree its compiles
-                           read; and how a program links the slice:
+                           read; and how Node's library links the slice:
                            "archives", of which "whole_archives" are linked
-                           whole (as Node's own link does: every V8 API
-                           function, for the addons it loads), the system
-                           "libs" and, on macOS, "frameworks"
+                           whole, as Node's own link of its library takes them
+                           (on Linux each of them, as gyp links a shared
+                           library's; on macOS V8's, every function of whose
+                           API the library exports for the addons it loads),
+                           the system "libs" and, on macOS, "frameworks"
   npm/                     npm, as Node's install lays it out
                            (lib/node_modules/npm), the same on every platform
   LICENSE                  Node's license, which covers its dependencies'
@@ -48,7 +54,7 @@ import shutil
 import subprocess
 import sys
 
-# Archives `node` links that are not the slice's: Node's own C++ and libuv,
+# Archives Node's library links that are not the slice's: Node's own C++ and libuv,
 # which neojac compiles (rt/node), and its startup snapshot, whose source
 # (gen/node_snapshot.cc) the slice ships instead.
 NOT_SLICE = {"libnode.a", "libnode_base.a", "libuv.a"}
@@ -153,7 +159,9 @@ def main():
     build = os.path.join(node, "out", "Release")
     gen = os.path.join(build, "obj", "gen")
     mk_dir = os.path.join(node, "out")
-    with open(os.path.join(mk_dir, "node.target.mk")) as f:
+    # The make file of Node's library (libnode.so.<ABI>, libnode.<ABI>.dylib),
+    # which says how it is linked.
+    with open(os.path.join(mk_dir, "libnode.target.mk")) as f:
         node_mk = f.read()
     with open(os.path.join(mk_dir, "node_base.target.mk")) as f:
         base_mk = f.read()
@@ -164,10 +172,10 @@ def main():
         os.makedirs(os.path.join(dest, d))
     sources = []
 
-    # The archives, from the link of `node`.
-    m = re.search(r"^\$\(builddir\)/node: LD_INPUTS := (.*)$", node_mk, re.M)
+    # The archives, from the link of Node's library.
+    m = re.search(r"^\S*/libnode\.[^\s:]+: LD_INPUTS := (.*)$", node_mk, re.M)
     if not m:
-        die("node.target.mk has no LD_INPUTS for node")
+        die("libnode.target.mk has no LD_INPUTS for Node's library: is Node configured --shared?")
     archives = []
     for w in m.group(1).split():
         if not w.endswith(".a"):
@@ -179,33 +187,34 @@ def main():
         if name in NOT_SLICE:
             continue
         if not os.path.isfile(path):
-            die(f"node links {path}, which is not there")
+            die(f"Node's library links {path}, which is not there")
         whole_archive(path, os.path.join(dest, "lib", name))
         archives.append(name)
-    whole = []
     flags = mk_list(node_mk, "LDFLAGS_Release")
-    inside = False
-    for w in flags:
-        if w == "-Wl,--whole-archive":
-            inside = True
-        elif w == "-Wl,--no-whole-archive":
-            inside = False
-        elif w.startswith("-Wl,-force_load,"):
-            # macOS: one archive linked whole.
-            name = os.path.basename(w[len("-Wl,-force_load,") :])
-            if name in archives and name not in whole:
-                whole.append(name)
-        elif inside and os.path.basename(w) in archives and os.path.basename(w) not in whole:
-            whole.append(os.path.basename(w))
+    with open(os.path.join(mk_dir, "Makefile")) as f:
+        solink = re.search(r"^cmd_solink = (.*)$", f.read(), re.M)
+    if solink and re.search(r"--whole-archive \$\(LD_INPUTS\)", solink.group(1)):
+        # gyp's make links a shared library's static inputs whole (Linux).
+        whole = list(archives)
+    else:
+        # macOS: each archive the link names to load whole.
+        whole = []
+        for w in flags:
+            if w.startswith("-Wl,-force_load,"):
+                name = os.path.basename(w[len("-Wl,-force_load,") :])
+                if name in archives and name not in whole:
+                    whole.append(name)
+    if not whole:
+        die("Node's library links no archive whole")
     libs = [w[2:] for w in mk_list(node_mk, "LIBS") if w.startswith("-l")]
-    # Static libraries `node` links by path in LIBS: the Rust crates V8's
+    # Static libraries Node's library links by path in LIBS: the Rust crates V8's
     # Temporal is built on (libnode_crates.a, cargo's).
     for w in mk_list(node_mk, "LIBS"):
         if w.endswith(".a"):
             path = os.path.normpath(w.replace("$(obj)", os.path.join(build, "obj")).replace("$(builddir)", build))
             name = os.path.basename(path)
             if not os.path.isfile(path):
-                die(f"node links {path}, which is not there")
+                die(f"Node's library links {path}, which is not there")
             if name not in archives:
                 whole_archive(path, os.path.join(dest, "lib", name))
                 archives.append(name)

@@ -1,7 +1,10 @@
 #!/bin/sh
-# Node, built for one platform by its own build (configure and make), compiled
-# as neojac compiles C++ so that what the slice ships links into a neojac
-# program: the LLVM release's Clang, with libc++ and libc++abi from the
+# Node, built for one platform by its own build (configure --shared and make):
+# as a shared library, which is how neojac holds Node, so that what the slice
+# ships is compiled for one (position-independent code, and V8's thread-local
+# storage in the model a library loaded while a program runs can use), and
+# compiled as neojac compiles C++ so that it links into neojac's own build of
+# that library: the LLVM release's Clang, with libc++ and libc++abi from the
 # runtimes slice (their headers and their static libraries, which neojac's
 # C++ links), and on Linux the glibc headers neojac compiles against, for
 # glibc 2.28. Node links the clibs slice's OpenSSL, zlib, Zstandard, SQLite
@@ -119,7 +122,7 @@ cargo --version >&2 || die "no Rust toolchain: Node's Temporal needs cargo"
 inc="$clibs/include"
 lib="$clibs/lib"
 # shellcheck disable=SC2086
-(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" \
+(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" --shared \
     --with-intl=full-icu --without-lief \
     --shared-openssl --shared-openssl-includes="$inc" --shared-openssl-libpath="$lib" \
     --shared-zlib --shared-zlib-includes="$inc" --shared-zlib-libpath="$lib" \
@@ -128,6 +131,7 @@ lib="$clibs/lib"
     --shared-ffi --shared-ffi-includes="$inc" --shared-ffi-libpath="$lib")
 grep -q '"v8_enable_temporal_support": 1' "$src/config.gypi" || die "configure left Temporal out"
 make -s -C "$src" -j"$JOBS"
-"$src/out/Release/node" -e 'if (typeof Temporal !== "object" || process.versions.openssl === undefined) process.exit(1); console.log(process.version, process.versions.v8)'
+# The node program of a shared build loads Node's library, which is beside it.
+LD_LIBRARY_PATH="$src/out/Release" DYLD_LIBRARY_PATH="$src/out/Release" "$src/out/Release/node" -e 'if (typeof Temporal !== "object" || process.versions.openssl === undefined) process.exit(1); console.log(process.version, process.versions.v8)'
 python3 -I "$NODE_DIR/pack.py" "$src" "$platform" "$out"
 log "$platform: $(du -sh "$out/node/$platform" | cut -f1)"
