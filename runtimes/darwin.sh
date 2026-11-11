@@ -88,12 +88,15 @@ done
 # arches, against these stubs alone (a system root holding only the frameworks;
 # what libSystem re-exports resolves inside its stub), as a link on a machine
 # without the SDK does.
+# Laid out as assemble.sh lays out the runtimes' libc/darwin/: the frameworks,
+# then the root's stubs merged over them (a re-exported framework's stub at its
+# install name, inside its framework's directory).
 rm -rf "$WORK/tbd-root"
 mkdir -p "$WORK/tbd-root/System/Library"
+cp -R "$out/frameworks" "$WORK/tbd-root/System/Library/Frameworks"
 if [ -d "$out/root" ]; then
     cp -R "$out/root/." "$WORK/tbd-root/"
 fi
-cp -R "$out/frameworks" "$WORK/tbd-root/System/Library/Frameworks"
 cat > "$WORK/tbd-check.c" <<'EOF'
 #include <CoreFoundation/CoreFoundation.h>
 #include <Security/Security.h>
