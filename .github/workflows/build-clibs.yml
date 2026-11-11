@@ -132,7 +132,8 @@ jobs:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
       - name: Tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build
+        # The runner image's own, as the LLVM builds use: no package mirror.
+        run: for t in cmake ninja; do command -v "$t"; done
       - uses: actions/cache@v4
         with:
           path: ${{ env.SRC_CACHE }}
