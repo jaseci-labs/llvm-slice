@@ -44,7 +44,7 @@ own build system with the LLVM release's Clang.
 | compiler-rt, libunwind, libc++abi, libc++ | `llvm-runtimes.sh` | LLVM's own CMake, from the release's sources |
 | the macOS SDK's headers, libSystem's stub and the frameworks' | `darwin.sh`, `tbd_targets.py` | the runner's SDK, the stubs restricted to the architectures the release's TextAPI reads |
 | wasi-libc | `assemble.sh` | wasi-sdk's own build of it and of compiler-rt's builtins |
-| zlib, zstd, libxml2 (`host/`) | `host-libs.sh` | their CMake, with LLVM's release options: what the official macOS and Windows LLVM archives reference but do not ship, and the zlib and zstd the libc++ Linux slices compress with (Zig's cc, at their glibc 2.17 floor, position-independent, the build `build-libcxx.yml` makes them with) |
+| zlib, zstd, libxml2 (`host/`) | `host-libs.sh` | their CMake, with LLVM's release options: what the official macOS LLVM archives reference but do not ship; the zlib and zstd the libc++ Linux slices compress with (Zig's cc, at their glibc 2.17 floor, position-independent, the build `build-libcxx.yml` makes them with); and the zlib and zstd the Windows slice compresses with (the release's Clang against `mingw.sh`'s mingw-w64, the build `llvm/windows.sh` makes them with) |
 
 `assemble.sh` lays the pieces out and checks them; `scripts/pack_slice.jac`
 packs the tree. `.github/workflows/build-runtimes.yml` runs it all.
