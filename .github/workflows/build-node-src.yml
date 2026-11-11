@@ -57,7 +57,7 @@ jobs:
           mkdir -p "$WORK" "$SRC_CACHE"
           sh node-src/build.sh tree
           test -f tree/node-src/crates/Cargo.lock
-          test -f tree/node-src/crates/vendor/temporal_capi/Cargo.toml
+          ls tree/node-src/crates/vendor/temporal_capi-*/Cargo.toml
 
       - name: Pack the slice
         run: jac run scripts/pack_slice.jac --kind node-src --tree tree --version "$NODE_VERSION" --revision "$REVISION" --out-dir dist | tee record.json
