@@ -5,14 +5,15 @@
 #
 #   runtimes/host-libs.sh macos-aarch64 <out>    zlib, zstd and libxml2 for
 #       macOS 14.0 and later (LLVM's Clang and the macOS SDK; run on macOS)
-#   runtimes/host-libs.sh windows-x86_64 <out>   libxml2 for MSVC against the
-#       static runtime (/MT), the libxml2 build_llvm_release.bat makes (run in a
-#       Visual Studio developer environment)
 #   runtimes/host-libs.sh linux-x86_64 <out>     zlib and zstd for the libc++
 #   runtimes/host-libs.sh linux-aarch64 <out>    slices (build-libcxx.yml), at
 #       their glibc 2.17 floor, position-independent (a consumer links them
 #       into a shared library with the archives): Zig's cc, the compiler that
 #       builds those slices, from any Linux host
+#   runtimes/host-libs.sh windows-x86_64 <out>   zlib (its MinGW makefile) and
+#       zstd for the Windows libc++ slice (llvm/windows.sh): the LLVM release's
+#       Clang against the mingw-w64 runtimes/mingw.sh builds (MINGW_SYSROOT
+#       names its <out>), from Linux
 #
 # Writes the static libraries to <out>/lib and their headers to <out>/include,
 # which a build of LLVM against them reads.
@@ -43,20 +44,21 @@ cmake_build() {
     shift 2
     b="$WORK/host-$name"
     rm -rf "$b"
-    # Ninja, or $CMAKE_GENERATOR (NMake Makefiles in a Visual Studio
-    # developer environment).
     # shellcheck disable=SC2086
-    cmake -G "${CMAKE_GENERATOR:-Ninja}" -S "$srcdir" -B "$b" -DCMAKE_BUILD_TYPE=Release \
+    cmake -G Ninja -S "$srcdir" -B "$b" -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX="$out" -DCMAKE_POLICY_DEFAULT_CMP0091=NEW \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 $common "$@"
     cmake --build "$b" --config Release
     cmake --install "$b" --config Release
 }
 
-# libxml2's sources, without its test data (whose symbolic links Windows' tar
-# cannot make, and which the library's build does not read).
-unpack_libxml2() {
-    unpack libxml2-v2.9.12.tar.gz "$WORK/libxml2" --exclude='*/test/*'
+# zlib and zstd, as static libraries only.
+zlib_zstd() {
+    unpack zlib-1.3.1.tar.gz "$WORK/zlib"
+    cmake_build zlib "$WORK/zlib" -DZLIB_BUILD_EXAMPLES=OFF
+    unpack zstd-1.5.7.tar.gz "$WORK/zstd"
+    cmake_build zstd "$WORK/zstd/build/cmake" -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON \
+        -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_LEGACY_SUPPORT=OFF
 }
 
 case "$platform" in
@@ -67,12 +69,10 @@ case "$platform" in
             -DCMAKE_RANLIB=$LLVM/bin/llvm-ranlib -DCMAKE_OSX_SYSROOT=$sdk
             -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
             -DCMAKE_C_FLAGS=-fvisibility=hidden"
-        unpack zlib-1.3.1.tar.gz "$WORK/zlib"
-        cmake_build zlib "$WORK/zlib" -DZLIB_BUILD_EXAMPLES=OFF
-        unpack zstd-1.5.7.tar.gz "$WORK/zstd"
-        cmake_build zstd "$WORK/zstd/build/cmake" -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON \
-            -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_LEGACY_SUPPORT=OFF
-        unpack_libxml2
+        zlib_zstd
+        # libxml2's sources, without its test data, which the library's build
+        # does not read.
+        unpack libxml2-v2.9.12.tar.gz "$WORK/libxml2" --exclude='*/test/*'
         # shellcheck disable=SC2086
         cmake_build libxml2 "$WORK/libxml2" $xml_options
         # Static libraries only: zlib's build also makes a shared one.
@@ -92,23 +92,33 @@ case "$platform" in
         common="-DCMAKE_SYSTEM_NAME=Linux -DCMAKE_SYSTEM_PROCESSOR=$arch -DCMAKE_C_COMPILER=$z/cc
             -DCMAKE_AR=$z/ar -DCMAKE_RANLIB=$z/ranlib -DCMAKE_POSITION_INDEPENDENT_CODE=ON
             -DCMAKE_C_FLAGS=-fvisibility=hidden"
-        unpack zlib-1.3.1.tar.gz "$WORK/zlib"
-        cmake_build zlib "$WORK/zlib" -DZLIB_BUILD_EXAMPLES=OFF
-        unpack zstd-1.5.7.tar.gz "$WORK/zstd"
-        cmake_build zstd "$WORK/zstd/build/cmake" -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON \
-            -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_LEGACY_SUPPORT=OFF
+        zlib_zstd
         # Static libraries only: zlib's build also makes a shared one.
         find "$out/lib" -name '*.so*' -exec rm -f {} +
         for f in libz.a libzstd.a; do test -f "$out/lib/$f"; done
         ;;
     windows-x86_64)
-        common="-DCMAKE_C_COMPILER=cl -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded"
-        unpack_libxml2
-        # shellcheck disable=SC2086
-        cmake_build libxml2 "$WORK/libxml2" $xml_options
-        ls "$out/lib"
+        llvm_toolchain
+        [ -d "${MINGW_SYSROOT:-}/x86_64-w64-mingw32" ] || die "MINGW_SYSROOT is not runtimes/mingw.sh's output"
+        cc="$LLVM/bin/clang --target=x86_64-w64-mingw32 --sysroot=$MINGW_SYSROOT"
+        # zlib by its own MinGW makefile, the static library alone, as
+        # runtimes/mingw.sh builds it for Windows' programs.
+        unpack zlib-1.3.1.tar.gz "$WORK/zlib"
+        make -s -C "$WORK/zlib" -f win32/Makefile.gcc libz.a CC="$cc" CFLAGS="-O2 -Wall" \
+            AR="$LLVM/bin/llvm-ar" ARFLAGS=rcs
+        mkdir -p "$out/lib" "$out/include"
+        cp "$WORK/zlib/libz.a" "$out/lib/"
+        cp "$WORK/zlib/zlib.h" "$WORK/zlib/zconf.h" "$out/include/"
+        common="-DCMAKE_SYSTEM_NAME=Windows -DCMAKE_SYSTEM_PROCESSOR=x86_64
+            -DCMAKE_C_COMPILER=$LLVM/bin/clang -DCMAKE_C_COMPILER_TARGET=x86_64-w64-mingw32
+            -DCMAKE_SYSROOT=$MINGW_SYSROOT -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY
+            -DCMAKE_AR=$LLVM/bin/llvm-ar -DCMAKE_RANLIB=$LLVM/bin/llvm-ranlib"
+        unpack zstd-1.5.7.tar.gz "$WORK/zstd"
+        cmake_build zstd "$WORK/zstd/build/cmake" -DZSTD_BUILD_SHARED=OFF -DZSTD_BUILD_STATIC=ON \
+            -DZSTD_BUILD_PROGRAMS=OFF -DZSTD_BUILD_TESTS=OFF -DZSTD_LEGACY_SUPPORT=OFF
+        for f in libz.a libzstd.a; do test -f "$out/lib/$f"; done
         ;;
-    *) die "platform is macos-aarch64, windows-x86_64, linux-x86_64 or linux-aarch64" ;;
+    *) die "platform is macos-aarch64, linux-x86_64, linux-aarch64 or windows-x86_64" ;;
 esac
 # The static libraries, and their headers: a link needs nothing else.
 find "$out/lib" -mindepth 1 ! -name "*.a" ! -name "*.lib" -exec rm -rf {} +

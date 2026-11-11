@@ -6,7 +6,8 @@
 #
 # <in> holds the other scripts' outputs: linux-headers/, musl-<arch>/, glibc/,
 # glibc-crt/<arch>-<version>/, rt-<triple>/ (the four Linux triples), mingw/,
-# darwin/, host-macos-aarch64/ and host-windows-x86_64/. The tree:
+# darwin/, host-<platform>/ (macos-aarch64, windows-x86_64, linux-x86_64,
+# linux-aarch64). The tree:
 #
 #   SOURCES.txt                      every pinned input, and the macOS SDK
 #   libc/include/<dir>/              C library headers: <arch>-linux-musl,

@@ -18,8 +18,8 @@ name: Build runtimes
 #                      builtins and LLVM's libunwind, libc++abi and libc++;
 #                      wasi-libc (wasi-sdk's build)
 #   host/<platform>/   the static libraries LLVM's archives reference but do not
-#                      ship: the official macOS and Windows archives' (zlib,
-#                      zstd, libxml2) and the libc++ Linux slices' (zlib, zstd)
+#                      ship: the official macOS archives' (zlib, zstd, libxml2)
+#                      and the libc++ Linux and Windows slices' (zlib, zstd)
 #
 # Every library is built from a pinned upstream release (runtimes/sources.txt)
 # by its own build system with the release's Clang: musl's configure, glibc's
@@ -61,7 +61,8 @@ env:
 jobs:
   linux:
     # Linux's headers, musl, glibc's data, LLVM's runtimes for the four Linux
-    # targets, and mingw-w64 with its runtimes: all cross builds with Clang.
+    # targets, mingw-w64 with its runtimes, and the static libraries the
+    # Windows libc++ slice references: all cross builds with Clang.
     runs-on: ubuntu-24.04
     env:
       WORK: ${{ github.workspace }}/../work
@@ -71,7 +72,8 @@ jobs:
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup /opt/hostedtoolcache/CodeQL || true
       - name: Tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build rsync
+        # The runner image's own, as the LLVM builds use: no package mirror.
+        run: for t in cmake ninja rsync; do command -v "$t"; done
       - uses: actions/cache@v4
         with:
           path: ${{ env.SRC_CACHE }}
@@ -101,6 +103,8 @@ jobs:
           done
       - name: mingw-w64
         run: sh runtimes/mingw.sh out/mingw
+      - name: Static zlib and zstd for the Windows libc++ archives
+        run: MINGW_SYSROOT="$PWD/out/mingw" sh runtimes/host-libs.sh windows-x86_64 out/host-windows-x86_64
       - name: Pack
         run: tar -czf linux.tar.gz -C out .
       - uses: actions/upload-artifact@v4
@@ -168,33 +172,6 @@ jobs:
           path: darwin.tar.gz
           retention-days: 7
 
-  windows:
-    # libxml2 for the official Windows archives, which reference it.
-    runs-on: windows-latest
-    defaults:
-      run:
-        shell: bash
-    env:
-      CMAKE_GENERATOR: NMake Makefiles
-    steps:
-      - uses: actions/checkout@v4
-      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1.13.0
-        with:
-          arch: x64
-      - name: Static libxml2 for the Windows archives
-        run: |
-          set -eu
-          # lib.sh's default work directories: under the checkout, as Git
-          # Bash's POSIX paths (RUNNER_TEMP is a D:\ path, which GNU tar
-          # mangles).
-          sh runtimes/host-libs.sh windows-x86_64 out/host-windows-x86_64
-          tar -czf windows.tar.gz -C out .
-      - uses: actions/upload-artifact@v4
-        with:
-          name: runtimes-windows
-          path: windows.tar.gz
-          retention-days: 7
-
   host-linux:
     # zlib and zstd for the libc++ LLVM slices, which compress with them (the
     # same build build-libcxx.yml makes them with): Zig's cc, for both
@@ -209,7 +186,8 @@ jobs:
         with:
           version: ${{ env.ZIG_VERSION }}
       - name: Tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build
+        # The runner image's own, as the LLVM builds use: no package mirror.
+        run: for t in cmake ninja; do command -v "$t"; done
       - uses: actions/cache@v4
         with:
           path: ${{ env.SRC_CACHE }}
@@ -227,7 +205,7 @@ jobs:
           retention-days: 7
 
   pack:
-    needs: [linux, glibc, darwin, windows, host-linux]
+    needs: [linux, glibc, darwin, host-linux]
     runs-on: ubuntu-24.04
     env:
       WORK: ${{ github.workspace }}/../work

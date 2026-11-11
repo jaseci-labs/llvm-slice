@@ -11,10 +11,11 @@ LLVM ships — by turning the official releases into artifacts you can fetch *pi
 > patch, or reconfigure LLVM -- we repackage the binaries LLVM already ships so they're cheaper to consume.
 > All credit for the toolchain belongs to the [LLVM project](https://llvm.org).
 >
-> The one exception is the **libc++ Linux slice** (`*-linux-libcxx`): upstream ships no libc++ Linux build,
-> so consumers that link the archives with a libc++ toolchain have nothing to repackage. That single variant
-> is built from unmodified upstream LLVM sources (`build-libcxx.yml`); it is a stock LLVM configured with
-> `-DLLVM_ENABLE_LIBCXX=ON`, not a patch or fork.
+> The exceptions are the **libc++ slices** (`*-linux-libcxx`, `x86_64-windows-libcxx`): upstream ships no
+> libc++ Linux build, and its Windows build is for MSVC's C++ ABI, so consumers that link the archives with a
+> libc++ toolchain (on Windows, mingw-w64's) have nothing to repackage. Those variants are built from
+> unmodified upstream LLVM sources (`build-libcxx.yml`); they are a stock LLVM configured for libc++, not a
+> patch or fork.
 
 ## Who this is for
 
@@ -169,7 +170,10 @@ on a single `ubuntu-latest` runner.
   the slice carries LLVM and Clang (static libraries, headers and resource
   headers), plus LLD with the `lld` input, all without debug info: the build
   passes `-g0`, since `zig cc` otherwise emits DWARF, and fails if any archive
-  carries it.
+  carries it. The Windows libc++ slice (`x86_64-windows-libcxx-lld`) is
+  cross-built on Linux by `llvm/windows.sh`: the release's Clang for
+  `x86_64-w64-mingw32`, against the runtimes slice's mingw-w64 (Universal CRT)
+  and libc++, with LLD always included.
 
 The CLI tool itself is released independently of the LLVM payload, on a
 `tool-v<version>` tag (distinct from the `v<llvm-version>` payload tags):
