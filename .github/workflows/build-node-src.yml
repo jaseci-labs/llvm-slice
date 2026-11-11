@@ -1,0 +1,87 @@
+name: Build Node source slice
+
+# The Node source slice: the Rust crates of a Node release (deps/crates), as
+# source, which neojac builds in a program's one Rust link where the Node slice's
+# libnode_crates.a has a Rust standard library of its own (node-src/README.md).
+# One range-fetchable zip, node-src-<version>-dev.zip, with its manifest, released
+# as node-src-v<version>-<revision>: platform-independent, and from the same pinned
+# Node release (node/sources.txt) as the Node slice, so it takes minutes where a
+# revision of that one builds V8.
+#
+# Pull requests that touch the build run it without publishing.
+
+on:
+  workflow_dispatch:
+    inputs:
+      revision:
+        description: "Revision of the slice for this Node version (the release is node-src-v<version>-<revision>)"
+        required: true
+      publish:
+        description: "Publish the release"
+        type: boolean
+        default: true
+  pull_request:
+    paths:
+      - "node-src/**"
+      - "node/sources.txt"
+      - "runtimes/lib.sh"
+      - "scripts/pack_slice.jac"
+      - ".github/workflows/build-node-src.yml"
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: "26.13.0"
+  JACLANG_VERSION: "0.16.7"
+
+jobs:
+  pack:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REVISION: ${{ inputs.revision || '1' }}
+      WORK: ${{ github.workspace }}/.work
+      SRC_CACHE: ${{ github.workspace }}/.src
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install "jaclang==$JACLANG_VERSION"
+
+      - name: The tree
+        run: |
+          mkdir -p "$WORK" "$SRC_CACHE"
+          sh node-src/build.sh tree
+          test -f tree/node-src/crates/Cargo.lock
+          test -f tree/node-src/crates/vendor/temporal_capi/Cargo.toml
+
+      - name: Pack the slice
+        run: jac run scripts/pack_slice.jac --kind node-src --tree tree --version "$NODE_VERSION" --revision "$REVISION" --out-dir dist | tee record.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-src-slice
+          path: |
+            dist/*
+            record.json
+          retention-days: 7
+
+      - name: Publish node-src-v${{ env.NODE_VERSION }}-${{ env.REVISION }}
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          tag="node-src-v$NODE_VERSION-$REVISION"
+          if gh release view "$tag" > /dev/null 2>&1; then
+            echo "::error::$tag exists; publish a new revision instead of replacing one consumers pin"
+            exit 1
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --latest=false \
+            --title "Node $NODE_VERSION source slice (revision $REVISION)" \
+            --notes "Node $NODE_VERSION's Rust crates (deps/crates), as the release ships them: what neojac builds V8's Temporal from in a program's one Rust link (node-src/README.md). Pin node-src-$NODE_VERSION-manifest.json by its sha256 with the zip's size, both in record.json." \
+            dist/* record.json
