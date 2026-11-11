@@ -338,9 +338,6 @@ jobs:
           python-version: "3.12"
       - run: pip install "jaclang==${JACLANG_VERSION}"
 
-      - name: Tools
-        run: sudo apt-get update -q && sudo apt-get install -y -q cmake ninja-build
-
       - name: Work directory
         # The Azure temp disk (/mnt) when it has room, as the Linux builds use.
         run: |
