@@ -41,8 +41,8 @@ with full ICU and without LIEF (single executable applications, which a
 neojac program, linked whole, has no need of). On Linux its libraries are
 compiled to link into a shared object as well as into a program:
 position-independent, with V8's thread-local variables in the model a library
-may use (`--enable-v8debughelper`, which is how Node's own build asks for
-both). The build checks the `node`
+may use (`-fPIC` and `V8_TLS_USED_IN_LIBRARY`, which Node's own build adds
+when its V8 libraries go into a shared object). The build checks the `node`
 it made runs, then `pack.py` takes the tree from it: what each file is and
 why is in its docstring.
 

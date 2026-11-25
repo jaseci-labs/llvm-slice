@@ -55,12 +55,15 @@ case "$platform" in
         [ "$arch" = x86_64 ] && dest_cpu=x64
         # The libraries link into a shared object as well as into a program:
         # position-independent code, and V8's thread-local variables in the
-        # model a library may use (the local-exec model, Node's default, is
+        # model a library may use (the local-exec model, V8's default, is
         # valid in an executable alone, and its relocations are refused in a
-        # -shared link). Node's build compiles so when its V8 libraries go
-        # into a shared object of its own, libv8_debug_helper, which this
-        # asks for; the `node` it builds, and what it links, are the same.
-        library_safe="--enable-v8debughelper"
+        # -shared link). These are what Node's own build adds when its V8
+        # libraries go into a shared object (common.gypi's -fPIC and v8.gyp's
+        # V8_TLS_USED_IN_LIBRARY, under node_shared and
+        # node_enable_v8debughelper); neither of those builds can be asked
+        # for here, the one making libnode a shared object and the other
+        # needing V8's tests, which a release's tarball leaves out.
+        cflags="$cflags -fPIC -DV8_TLS_USED_IN_LIBRARY"
         ;;
     macos-aarch64)
         triple="arm64-apple-macos14.0"
@@ -82,9 +85,6 @@ case "$platform" in
         link_libs="$rt/targets/$tdir/libclang_rt.builtins.a -lSystem"
         cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a"
         dest_cpu=arm64
-        # Mach-O code is position-independent as it is, and its thread-local
-        # variables have one model.
-        library_safe=""
         ;;
     *) die "no Node slice for '$platform'" ;;
 esac
@@ -130,7 +130,7 @@ cargo --version >&2 || die "no Rust toolchain: Node's Temporal needs cargo"
 inc="$clibs/include"
 lib="$clibs/lib"
 # shellcheck disable=SC2086
-(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" $library_safe \
+(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" \
     --with-intl=full-icu --without-lief \
     --shared-openssl --shared-openssl-includes="$inc" --shared-openssl-libpath="$lib" \
     --shared-zlib --shared-zlib-includes="$inc" --shared-zlib-libpath="$lib" \
