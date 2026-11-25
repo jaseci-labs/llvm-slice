@@ -53,6 +53,17 @@ case "$platform" in
         dest_cpu="$arch"
         [ "$arch" = aarch64 ] && dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
+        # The libraries link into a shared object as well as into a program:
+        # position-independent code, and V8's thread-local variables in the
+        # model a library may use (the local-exec model, V8's default, is
+        # valid in an executable alone, and its relocations are refused in a
+        # -shared link). These are what Node's own build adds when its V8
+        # libraries go into a shared object (common.gypi's -fPIC and v8.gyp's
+        # V8_TLS_USED_IN_LIBRARY, under node_shared and
+        # node_enable_v8debughelper); neither of those builds can be asked
+        # for here, the one making libnode a shared object and the other
+        # needing V8's tests, which a release's tarball leaves out.
+        cflags="$cflags -fPIC -DV8_TLS_USED_IN_LIBRARY"
         ;;
     macos-aarch64)
         triple="arm64-apple-macos14.0"
