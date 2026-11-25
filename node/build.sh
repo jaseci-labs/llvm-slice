@@ -53,6 +53,14 @@ case "$platform" in
         dest_cpu="$arch"
         [ "$arch" = aarch64 ] && dest_cpu=arm64
         [ "$arch" = x86_64 ] && dest_cpu=x64
+        # The libraries link into a shared object as well as into a program:
+        # position-independent code, and V8's thread-local variables in the
+        # model a library may use (the local-exec model, Node's default, is
+        # valid in an executable alone, and its relocations are refused in a
+        # -shared link). Node's build compiles so when its V8 libraries go
+        # into a shared object of its own, libv8_debug_helper, which this
+        # asks for; the `node` it builds, and what it links, are the same.
+        library_safe="--enable-v8debughelper"
         ;;
     macos-aarch64)
         triple="arm64-apple-macos14.0"
@@ -74,6 +82,9 @@ case "$platform" in
         link_libs="$rt/targets/$tdir/libclang_rt.builtins.a -lSystem"
         cxx_runtime="$rt/targets/$tdir/libc++.a $rt/targets/$tdir/libc++abi.a"
         dest_cpu=arm64
+        # Mach-O code is position-independent as it is, and its thread-local
+        # variables have one model.
+        library_safe=""
         ;;
     *) die "no Node slice for '$platform'" ;;
 esac
@@ -119,7 +130,7 @@ cargo --version >&2 || die "no Rust toolchain: Node's Temporal needs cargo"
 inc="$clibs/include"
 lib="$clibs/lib"
 # shellcheck disable=SC2086
-(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" \
+(cd "$src" && python3 configure.py --use_clang --dest-cpu="$dest_cpu" $library_safe \
     --with-intl=full-icu --without-lief \
     --shared-openssl --shared-openssl-includes="$inc" --shared-openssl-libpath="$lib" \
     --shared-zlib --shared-zlib-includes="$inc" --shared-zlib-libpath="$lib" \
